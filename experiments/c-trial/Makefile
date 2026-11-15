@@ -24,7 +24,7 @@ score.o perks.o: perks.h perk_defs.h hw_math.h
 bench.sfc: $(OBJS)
 	$(LD) $(RULES) $(OBJS) -o bench.elf --output-format raw \
 	      --rtattr exit=simplified -l --cross-reference
-	python3 hirom_fix.py bench.raw $@
+	python3 ../../tools/hirom_fix.py bench.raw $@
 
 clean:
 	rm -f *.o *.elf *.raw *.lst bench.sfc vectors.h vectors.bin

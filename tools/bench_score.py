@@ -91,7 +91,7 @@ def calib_asm(m):
 
 
 c_rom = os.path.join(TRIAL, "bench.sfc")
-a_rom = os.path.join(ROOT, "build", "nolfied_bench.sfc")
+a_rom = os.path.join(ROOT, "build", "legacy", "nolfied_bench.sfc")
 c_res = run(c_rom, addr["results"], addr["bench_done"], 16, parse_c, calib_c)
 a_res = run(a_rom, 0x8000, 0x8FFF, 24, parse_asm, calib_asm)
 # subtract each harness's own empty-window cost
