@@ -118,6 +118,15 @@ CHAIN_T  = $0656            ; word: frames until the chain breaks
 CHAIN_BAR = $0658
 REROLLS  = $0659
 RUN_END  = $0660
+; state-machine bookkeeping (outside the per-run area)
+FSM_ERRS = $0670            ; number of illegal transitions / invariant faults
+FSM_KIND = $0671            ; 1 game state, 2 player mode, 3 trail invariant
+FSM_FROM = $0672
+FSM_TO   = $0673
+FSM_NEW  = $0674            ; word
+FSM_TMP  = $0676            ; word
+APU_DEAD = $0678            ; sound CPU stopped answering: never touch it again
+LOOPS    = $067A            ; word: main-loop iterations (frame pacing tests)
 
 P_GREED   = 0
 P_CHAIN   = 1
@@ -167,6 +176,8 @@ ST_DYING = 3
 ST_CLEAR = 4
 ST_OVER  = 5
 ST_DRAFT = 6
+ST_PAUSE = 7
+ST_BOOT  = 8                ; only ever the initial value
 
 PM_EDGE    = 0
 PM_DRAW    = 1
@@ -246,7 +257,6 @@ bg3_dirty:   .res 1
 tm_val:      .res 1
 bright:      .res 1
 state:       .res 1
-paused:      .res 1
 joy:         .res 2
 joy_prev:    .res 2
 joy_new:     .res 2
@@ -317,6 +327,7 @@ spr_attr:    .res 1
 spr_big:     .res 1
 spr_slot:    .res 2
 ps_bits:     .res 1
+view_state:  .res 1
 apu_cnt:     .res 1
 apu_reg:     .res 1
 apu_val:     .res 1
@@ -377,10 +388,15 @@ sfx_ch:      .res 2
         lda #$ACE1
         sta rng
         A8
-        jsr enter_title
+        lda #ST_BOOT
+        sta state
+        lda #ST_TITLE
+        jsr goto_state
 
 main_loop:
-        jsr wait_nmi
+        A16
+        inc LOOPS
+        A8
         jsr read_joy
         jsr juice_update
         jsr sfx_update
@@ -391,14 +407,21 @@ main_loop:
         tax
         A8
         jsr (state_tab,x)
+        jsr fsm_check
+        lda state
         jsr build_oam
+        ; publish the frame, then sleep until the NMI has uploaded it. Waiting
+        ; on frame_ready (not nmi_count) cannot miss an NMI that lands right
+        ; after the publish - see spec/FrameSync.tla.
         lda #$01
         sta frame_ready
-        bra main_loop
+@wait:  lda frame_ready
+        bne @wait
+        jmp main_loop
 .endproc
 
 state_tab:
-        .word st_title, st_ready, st_play, st_dying, st_clear, st_over, st_draft
+        .word st_title, st_ready, st_play, st_dying, st_clear, st_over, st_draft, st_pause
 
 .proc irq_stub
         .a8
@@ -585,14 +608,6 @@ done:
         rts
 .endproc
 
-.proc wait_nmi
-        .a8
-        .i16
-        lda nmi_count
-@w:     cmp nmi_count
-        beq @w
-        rts
-.endproc
 
 .proc read_joy
         .a8
@@ -1564,7 +1579,8 @@ seed_offs_end:
         lda pct
         cmp GOAL
         bcc @nc
-        jmp enter_clear
+        lda #ST_CLEAR
+        jmp goto_state
 @nc:    SFX 0, sfx_claim
         rts
 .endproc
@@ -1852,11 +1868,14 @@ dir_didx: .word $FFC0, 64, $FFFF, 1     ; up, down, left, right
         ora tmp0+1
         beq @doret
         lda #PM_DRAW
-        sta pmode
+        jsr set_pmode
         bra @move
-@doret: jsr retract_step
+@doret: jsr retract_step        ; retract at 2 cells per frame
+        lda pmode
+        cmp #PM_RETRACT
+        bne :+
         jsr retract_step
-        rts
+:       rts
 @notret:
         cmp #PM_DRAW
         bne @move
@@ -1864,8 +1883,7 @@ dir_didx: .word $FFC0, 64, $FFFF, 1     ; up, down, left, right
         ora tmp0+1
         bne @move
         lda #PM_RETRACT
-        sta pmode
-        rts
+        jmp set_pmode
 @move:  dec pmove_timer
         beq :+
         rts
@@ -1933,7 +1951,7 @@ dir_didx: .word $FFC0, 64, $FFFF, 1     ; up, down, left, right
         ldx #$0000
         stx trail_len
         lda #PM_DRAW
-        sta pmode
+        jsr set_pmode
         SFX 0, sfx_cut
         bra @add
 @drawing:
@@ -1943,12 +1961,12 @@ dir_didx: .word $FFC0, 64, $FFFF, 1     ; up, down, left, right
         bne @fail
         ldx tmp2
         stx p_idx
-        lda #PM_EDGE
-        sta pmode
         jsr calc_ppos
-        jsr do_fill
-        ldx #$0000
-        stx trail_len
+        jsr do_fill             ; may enter ST_CLEAR
+        ldx #$0000              ; the trail is now claimed area:
+        stx trail_len           ; mode and trail change together
+        lda #PM_EDGE
+        jsr set_pmode
         sec
         rts
 @add:   ldx tmp2
@@ -1981,8 +1999,7 @@ dir_didx: .word $FFC0, 64, $FFFF, 1     ; up, down, left, right
         sta p_idx
         A8
         lda #PM_EDGE
-        sta pmode
-        rts
+        jmp set_pmode
 @pop:   A16
         dec a
         sta trail_len
@@ -2001,7 +2018,14 @@ dir_didx: .word $FFC0, 64, $FFFF, 1     ; up, down, left, right
         tyx
         A8
         stz GRID,x
-        jmp update_cell
+        jsr update_cell
+        A16
+        lda trail_len
+        A8
+        bne :+
+        lda #PM_EDGE            ; trail empty: back on the edge this same step
+        jmp set_pmode
+:       rts
 .endproc
 
 .proc calc_ppos
@@ -2055,7 +2079,15 @@ dir_didx: .word $FFC0, 64, $FFFF, 1     ; up, down, left, right
         jsr show_msg
         SFX 1, sfx_kill
         rts
-@die:   stz CHAIN
+@die:   lda #ST_DYING
+        jmp goto_state
+@no:    rts
+.endproc
+
+.proc enter_dying
+        .a8
+        .i16
+        stz CHAIN
         jsr draw_chain_bar
         lda #18
         sta FL_R
@@ -2064,8 +2096,6 @@ dir_didx: .word $FFC0, 64, $FFFF, 1     ; up, down, left, right
         sta FL_B
         lda #24
         sta SHAKE_T
-        lda #ST_DYING
-        sta state
         ldx #90
         stx timer
         lda ppx
@@ -2075,7 +2105,7 @@ dir_didx: .word $FFC0, 64, $FFFF, 1     ; up, down, left, right
         jsr spawn_boom
         jsr music_stop
         SFX 1, sfx_death
-@no:    rts
+        rts
 .endproc
 
 ; -----------------------------------------------------------------------------
@@ -2127,7 +2157,9 @@ dir_didx: .word $FFC0, 64, $FFFF, 1     ; up, down, left, right
         bne @c
         ldx #(47*64 + 30)
         stx p_idx
-        stz pmode
+        stz pmode               ; FSM reset: every stage starts on the edge
+        ldx #$0000
+        stx trail_len
         lda #2
         sta pspeed
         lda PERKS+P_SWIFT
@@ -2595,9 +2627,10 @@ dir_didx: .word $FFC0, 64, $FFFF, 1     ; up, down, left, right
         rts
 .endproc
 
-.proc build_oam
+.proc build_oam                 ; A = the game state to draw sprites for
         .a8
         .i16
+        sta view_state
         ldx #$0000
 @h:     stz OAM_BUF,x
         lda #224
@@ -2613,7 +2646,7 @@ dir_didx: .word $FFC0, 64, $FFFF, 1     ; up, down, left, right
         stz OAM_HI+2
         stz OAM_HI+3
         stz OAM_HI+4
-        lda state
+        lda view_state
         cmp #ST_DRAFT
         bne :+
         jmp draft_oam
@@ -2622,12 +2655,14 @@ dir_didx: .word $FFC0, 64, $FFFF, 1     ; up, down, left, right
         beq @show
         cmp #ST_PLAY
         beq @show
+        cmp #ST_PAUSE
+        beq @show
         cmp #ST_DYING
         beq @show
         rts
 @show:
         ; ---- player (slot 0)
-        lda state
+        lda view_state
         cmp #ST_DYING
         beq @noplayer
         lda invuln
@@ -2795,8 +2830,6 @@ dir_didx: .word $FFC0, 64, $FFFF, 1     ; up, down, left, right
         lda #$80
         sta INIDISP
         stz NMITIMEN
-        lda #ST_TITLE
-        sta state
         lda #0
         jsr load_picture
         jsr clear_bg3
@@ -2848,6 +2881,7 @@ dir_didx: .word $FFC0, 64, $FFFF, 1     ; up, down, left, right
         lda #0
         jsr put_digit
         jsr upload_bg3
+        lda #ST_TITLE
         jsr build_oam
         jsr upload_oam
         lda #$16
@@ -2897,7 +2931,8 @@ dir_didx: .word $FFC0, 64, $FFFF, 1     ; up, down, left, right
         lda #1
         sta stage
         jsr new_run
-        jsr enter_draft
+        lda #ST_DRAFT
+        jmp goto_state
 @done:  rts
 .endproc
 
@@ -2916,7 +2951,6 @@ dir_didx: .word $FFC0, 64, $FFFF, 1     ; up, down, left, right
         ldx #$0000
         stx claimed
         stz pct
-        stz paused
         jsr init_entities
         jsr clear_bg3
         jsr draw_hud
@@ -2926,11 +2960,10 @@ dir_didx: .word $FFC0, 64, $FFFF, 1     ; up, down, left, right
         jsr put_dec2
         PRINT 15, 12, s_ready, ATTR_W
         jsr upload_bg3
-        lda #ST_READY
-        sta state
         ldx #120
         stx timer
         jsr calc_ppos
+        lda #ST_READY
         jsr build_oam
         jsr upload_oam
         lda #$17
@@ -2954,13 +2987,8 @@ dir_didx: .word $FFC0, 64, $FFFF, 1     ; up, down, left, right
         dec timer
         A8
         bne @r
-        lda #13
-        jsr clear_row
-        lda #15
-        jsr clear_row
         lda #ST_PLAY
-        sta state
-        jsr music_start
+        jmp goto_state
 @r:     rts
 .endproc
 
@@ -2971,20 +2999,9 @@ dir_didx: .word $FFC0, 64, $FFFF, 1     ; up, down, left, right
         lda joy_new
         and #BTN_START
         A8
-        beq @np
-        lda paused
-        eor #1
-        sta paused
-        beq @unp
-        PRINT 14, 13, s_paused, ATTR_Y
-        jsr music_stop
-        bra @np
-@unp:   lda #14
-        jsr clear_row
-        jsr music_start
-@np:    lda paused
         beq :+
-        rts
+        lda #ST_PAUSE
+        jmp goto_state
 :       jsr player_update
         jsr calc_ppos
         lda state
@@ -3009,20 +3026,18 @@ dir_didx: .word $FFC0, 64, $FFFF, 1     ; up, down, left, right
         jsr draw_hud
         lda lives
         bne :+
-        jmp enter_gameover
+        lda #ST_OVER
+        jmp goto_state
 :       ldx #120
         stx invuln
         lda #ST_PLAY
-        sta state
-        jmp music_start
+        jmp goto_state
 .endproc
 
 .proc enter_clear
         .a8
         .i16
         jsr music_stop
-        lda #ST_CLEAR
-        sta state
         ldx #240
         stx timer
         lda #$16
@@ -3100,15 +3115,14 @@ dir_didx: .word $FFC0, 64, $FFFF, 1     ; up, down, left, right
         cmp #99
         bcs :+
         inc stage
-:       jsr enter_draft
+:       lda #ST_DRAFT
+        jmp goto_state
 @r:     rts
 .endproc
 
 .proc enter_gameover
         .a8
         .i16
-        lda #ST_OVER
-        sta state
         ldx #300
         stx timer
         PRINT 14, 11, s_over, ATTR_Y
@@ -3143,7 +3157,8 @@ dir_didx: .word $FFC0, 64, $FFFF, 1     ; up, down, left, right
         and #BTN_START
         beq @r
 @go:    A8
-        jmp enter_title
+        lda #ST_TITLE
+        jmp goto_state
 @r:     A8
         rts
 .endproc
@@ -3154,11 +3169,16 @@ dir_didx: .word $FFC0, 64, $FFFF, 1     ; up, down, left, right
 .proc spc_init
         .a8
         .i16
+        ldx #$0000
         A16
 @w:     lda APUIO0
         cmp #$BBAA
+        beq :+
+        dex
         bne @w
         A8
+        bra @dead
+:       A8
         ldx #$0200
         stx APUIO2
         lda #$01
@@ -3189,6 +3209,18 @@ dir_didx: .word $FFC0, 64, $FFFF, 1     ; up, down, left, right
 @w3:    cmp APUIO0
         bne @w3
         sta apu_cnt
+        ; wait for the driver to latch port0 and raise READY before the first
+        ; request, otherwise it can mistake that request for an old one
+        ldx #$0000
+@w4:    lda APUIO1
+        cmp #$A5
+        beq @up
+        dex
+        bne @w4
+@dead:  lda #1
+        sta APU_DEAD
+        rts
+@up:
         DSPW $6C, $20           ; FLG: echo writes off, unmute
         DSPW $0C, $60           ; main volume
         DSPW $1C, $60
@@ -3244,7 +3276,10 @@ dir_didx: .word $FFC0, 64, $FFFF, 1     ; up, down, left, right
 .proc apu_write
         .a8
         .i16
-        phx
+        lda APU_DEAD
+        beq :+
+        rts
+:       phx
         lda apu_reg
         sta APUIO1
         lda apu_val
@@ -3257,6 +3292,8 @@ dir_didx: .word $FFC0, 64, $FFFF, 1     ; up, down, left, right
         beq @ok
         dex
         bne @w
+        lda #1                  ; no echo: the driver may still be reading the
+        sta APU_DEAD            ; ports, so never write them again
 @ok:    plx
         rts
 .endproc
@@ -3717,7 +3754,8 @@ kon_bits: .byte $01, 0, $02, 0, $04, 0, $08, 0
         beq :+
         ldx start_idx
         stx p_idx
-:       stz pmode
+:       lda #PM_EDGE
+        jsr set_pmode
         jmp calc_ppos
 .endproc
 
@@ -4189,8 +4227,6 @@ rar_attr:   .byte ATTR_W, ATTR_G, ATTR_P
         sta INIDISP
         stz NMITIMEN
         jsr music_stop
-        lda #ST_DRAFT
-        sta state
         ldx #$0000
         stx CURSOR
         ldx #40
@@ -4228,6 +4264,7 @@ rar_attr:   .byte ATTR_W, ATTR_G, ATTR_P
 :       PRINT 26, 3, s_dhelp, ATTR_W
         jsr upload_bg1
         jsr upload_bg3
+        lda #ST_DRAFT
         jsr build_oam
         jsr upload_oam
         lda #$17
@@ -4325,7 +4362,8 @@ rar_attr:   .byte ATTR_W, ATTR_G, ATTR_P
         cmp #2
         bcc :+
         dec lives
-:       jsr load_stage
+:       lda #ST_READY
+        jsr goto_state
         SFX 2, jingle_start
         rts
 @r:     A8
@@ -4385,6 +4423,195 @@ rar_attr:   .byte ATTR_W, ATTR_G, ATTR_P
         A8
         bne @l
         rts
+.endproc
+
+
+; =============================================================================
+;  Explicit state machines (modelled in spec/GameFSM.tla)
+; =============================================================================
+;  Game flow                          Player mode (only during a stage)
+;    BOOT  -> TITLE                     EDGE    -> DRAW     cut starts
+;    TITLE -> DRAFT     start           DRAW    -> RETRACT  cut button released
+;    DRAFT -> READY     perk taken      RETRACT -> DRAW     pressed again
+;    READY -> PLAY      timer           RETRACT -> EDGE     trail fully retracted
+;    PLAY  -> PAUSE     start           DRAW    -> EDGE     cut closed (filled)
+;    PAUSE -> PLAY      start           any     -> EDGE     trail wiped (hit)
+;    PLAY  -> DYING     hit, no AEGIS
+;    PLAY  -> CLEAR     goal reached    invariant: pmode = EDGE <=> trail_len = 0
+;    DYING -> PLAY      lives left
+;    DYING -> OVER      no lives        A handler that changes state must return
+;    CLEAR -> DRAFT     timer           straight away (st_play re-checks `state`
+;    OVER  -> TITLE     timer / start   after the player moves).
+;
+;  `state` changes only after the target's entry action has finished, so a
+;  multi-frame entry (forced-blank loads) is never observed half-done.
+;
+;  goto_state / set_pmode are the only writers of `state` / `pmode` (besides
+;  the boot value and the per-stage reset). An illegal transition is still
+;  taken, so the game keeps running, but it is counted in FSM_ERRS with the
+;  offending pair, which the test harness asserts stays at zero.
+
+bitw_tab:   .word $0001, $0002, $0004, $0008, $0010, $0020, $0040, $0080, $0100
+
+; bit mask of the states each state may be entered from (index = target)
+fsm_allow:
+        .word (1 << ST_BOOT) | (1 << ST_OVER)                 ; TITLE
+        .word (1 << ST_DRAFT)                              ; READY
+        .word (1 << ST_READY) | (1 << ST_PAUSE) | (1 << ST_DYING) ; PLAY
+        .word (1 << ST_PLAY)                               ; DYING
+        .word (1 << ST_PLAY)                               ; CLEAR
+        .word (1 << ST_DYING)                              ; OVER
+        .word (1 << ST_TITLE) | (1 << ST_CLEAR)               ; DRAFT
+        .word (1 << ST_PLAY)                               ; PAUSE
+; entry actions (index = target)
+fsm_enter:
+        .word enter_title, load_stage, enter_play, enter_dying
+        .word enter_clear, enter_gameover, enter_draft, enter_pause
+
+pm_allow:
+        .word (1 << PM_EDGE) | (1 << PM_DRAW) | (1 << PM_RETRACT) ; -> EDGE
+        .word (1 << PM_EDGE) | (1 << PM_RETRACT)               ; -> DRAW
+        .word (1 << PM_DRAW)                                ; -> RETRACT
+
+; A = target state. Validates, switches, runs the entry action.
+.proc goto_state
+        .a8
+        .i16
+        sta FSM_NEW
+        stz FSM_NEW+1
+        A16
+        lda state
+        and #$00FF
+        asl
+        tax
+        lda bitw_tab,x
+        sta FSM_TMP
+        lda FSM_NEW
+        asl
+        tax
+        lda fsm_allow,x
+        and FSM_TMP
+        A8
+        bne @ok
+        lda #1
+        sta FSM_KIND
+        lda state
+        jsr fsm_fault
+@ok:    lda FSM_NEW
+        pha
+        A16
+        and #$00FF
+        asl
+        tax
+        A8
+        jsr (fsm_enter,x)       ; entry action runs in the old state...
+        pla
+        sta state               ; ...and the new state is committed only
+        rts                     ; once it is fully set up
+.endproc
+
+; A = target player mode
+.proc set_pmode
+        .a8
+        .i16
+        sta FSM_NEW
+        stz FSM_NEW+1
+        A16
+        lda pmode
+        and #$00FF
+        asl
+        tax
+        lda bitw_tab,x
+        sta FSM_TMP
+        lda FSM_NEW
+        asl
+        tax
+        lda pm_allow,x
+        and FSM_TMP
+        A8
+        bne @ok
+        lda #2
+        sta FSM_KIND
+        lda pmode
+        jsr fsm_fault
+@ok:    lda FSM_NEW
+        sta pmode
+        rts
+.endproc
+
+; A = "from" value; FSM_KIND / FSM_NEW already set
+.proc fsm_fault
+        .a8
+        .i16
+        sta FSM_FROM
+        lda FSM_NEW
+        sta FSM_TO
+        lda FSM_ERRS
+        cmp #$FF
+        beq :+
+        inc FSM_ERRS
+:       rts
+.endproc
+
+; once per frame: pmode = EDGE <=> trail_len = 0 while a stage is running
+.proc fsm_check
+        .a8
+        .i16
+        lda state
+        cmp #ST_TITLE
+        beq @ok
+        cmp #ST_DRAFT
+        beq @ok
+        cmp #ST_OVER
+        beq @ok
+        A16
+        lda trail_len
+        A8
+        beq @empty
+        lda pmode               ; trail exists: must be cutting
+        bne @ok
+        bra @bad
+@empty: lda pmode               ; no trail: must be on the edge
+        beq @ok
+@bad:   lda #3
+        sta FSM_KIND
+        lda pmode
+        sta FSM_NEW
+        lda state
+        jsr fsm_fault
+@ok:    rts
+.endproc
+
+.proc enter_play
+        .a8
+        .i16
+        lda #13
+        jsr clear_row
+        lda #14
+        jsr clear_row
+        lda #15
+        jsr clear_row
+        jmp music_start
+.endproc
+
+.proc enter_pause
+        .a8
+        .i16
+        PRINT 14, 13, s_paused, ATTR_Y
+        jmp music_stop
+.endproc
+
+.proc st_pause
+        .a8
+        .i16
+        A16
+        lda joy_new
+        and #BTN_START
+        A8
+        beq :+
+        lda #ST_PLAY
+        jmp goto_state
+:       rts
 .endproc
 
 ; =============================================================================
@@ -4524,7 +4751,8 @@ spc_blob:
         .byte $CD, $EF                  ; mov x,#$ef
         .byte $BD                       ; mov sp,x
         .byte $E4, $F4                  ; mov a,$f4
-        .byte $C4, $00                  ; mov $00,a
+        .byte $C4, $00                  ; mov $00,a      last := port0
+        .byte $8F, $A5, $F5             ; mov $f5,#$a5   READY (after last!)
         .byte $E4, $F4                  ; loop: mov a,$f4
         .byte $64, $00                  ; cmp a,$00
         .byte $F0, $FA                  ; beq loop
@@ -4536,7 +4764,7 @@ spc_blob:
         .byte $E4, $00                  ; mov a,$00
         .byte $C4, $F4                  ; mov $f4,a
         .byte $2F, $EA                  ; bra loop
-        .res $0300 - $0200 - 30, 0
+        .res $0300 - $0200 - 33, 0
         ; $0300: sample directory
         .word $0400, $0400, $0410, $0410
         .res $0400 - $0308, 0

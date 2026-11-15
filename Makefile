@@ -16,10 +16,17 @@ $(ROM): build/main.o src/snes.cfg tools/fix_checksum.py Makefile
 	ld65 -C src/snes.cfg -Ln build/nolfied.lbl -o $@ build/main.o
 	python3 tools/fix_checksum.py $@
 
+test: $(ROM)
+	python3 tools/test_flow.py
+	python3 tools/test_perks.py
+
+tla:
+	spec/check.sh
+
 run: $(ROM)
 	mame snes -cart $(ROM) -window
 
 clean:
 	rm -rf build
 
-.PHONY: all run clean
+.PHONY: all run clean test tla

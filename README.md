@@ -88,9 +88,15 @@ make            # -> build/nolfied.sfc
 - `tools/gen_icons.py`: the 32x32 perk card icons and the 8x8 HUD versions.
 - `src/main.s`: the whole game in 65816 assembly, with a tiny SPC700 sound driver
   embedded as bytes.
-- `tools/retro.py` / `tools/playtest.py`: a headless libretro host (uses the
-  bsnes-mercury core: `apt install libretro-bsnes-mercury-accuracy`) for scripted and
-  random-input soak tests. The soak test also checks the field's internal state.
+- `tools/retro.py`: a headless libretro host (uses the bsnes-mercury core:
+  `apt install libretro-bsnes-mercury-accuracy`).
+- `make test`: `tools/test_flow.py` walks every state transition, checks the
+  runtime state-machine checker and the frame pacing. `tools/test_perks.py` checks
+  each perk against an independent scoring model.
+- `tools/playtest.py OUT SEED STEPS`: a random-input soak test that checks the
+  field and the state machines.
+- `make tla`: model-checks the TLA+ specs in [`spec/`](spec/README.md). They cover
+  the NMI/main-loop and SNES/SPC700 handshakes and the game state machine.
 
 ## Tech notes
 
@@ -100,5 +106,8 @@ make            # -> build/nolfied.sfc
   field has a 60x48 grid while the map is still made of ordinary tiles.
 - Claiming uses a flood fill from the boss's position. Anything it doesn't reach gets
   claimed, then the edge cells are worked out again.
-- Sound: a 30-byte SPC700 program that writes DSP registers on request. The 65816
-  side sequences the sound effects, the jingles and a looping bass line.
+- Sound: a 33-byte SPC700 program that writes DSP registers on request, with a
+  READY handshake. The 65816 side sequences the sound effects, the jingles and a
+  looping bass line.
+- Game flow and the player's mode are explicit state machines: a transition table,
+  entry actions and a runtime checker. See `spec/README.md`.

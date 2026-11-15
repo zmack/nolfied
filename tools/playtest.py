@@ -20,6 +20,8 @@ for i in range(N):
         e.run(2,'start'); e.run(2); games+=1; continue
     if st==6:
         e.run(random.randint(1,30), random.choice(['left','right'])); e.run(45); e.run(2,'b'); e.run(2); continue
+    if st==2 and random.random()<0.03:          # exercise PAUSE
+        e.run(2,'start'); e.run(random.randint(1,30)); e.run(2,'start'); continue
     d=random.choice(dirs); n=random.randint(4,40)
     btn=['b'] if random.random()<0.75 else []
     e.run(n, d, *btn)
@@ -28,7 +30,7 @@ for i in range(N):
     maxstage=max(maxstage, r[lab['stage']])
     # sanity: player must be inside the field and in a sane mode
     p=r[lab['p_idx']]|r[lab['p_idx']+1]<<8
-    if (p&63)>=60 or (p>>6)>=48 or r[lab['pmode']]>2 or r[lab['state']]>6:
+    if (p&63)>=60 or (p>>6)>=48 or r[lab['pmode']]>2 or r[lab['state']]>7:
         print('BAD', i, p&63, p>>6, r[lab['pmode']], r[lab['state']]); e.shot(S+f'/bad{seed}.png'); break
     if r[lab['state']]==2 and r[lab['pmode']]==0 and (r[lab['trail_len']]|r[lab['trail_len']+1])==0:
         g=[[r[0x880+y*64+x] for x in range(60)] for y in range(48)]
@@ -44,6 +46,10 @@ for i in range(N):
         bx=r[0x501]>>2; by=r[0x511]>>2
         if g[by][bx] not in (0,3) and r[0x540]: bad=('boss in claimed',bx,by)
         if bad: print('INVARIANT',i,bad); e.shot(S+f'/inv{seed}.png'); break
+    if r[0x670]:
+        print('FSM FAULT', i, 'kind', r[0x671], 'from', r[0x672], 'to', r[0x673]); e.shot(S+f'/fsm{seed}.png'); break
+    if r[0x678]:
+        print('APU DEAD', i); break
     nmi=r[lab['nmi_count']]
     if nmi==prev_nmi: print('HANG?', i); break
     prev_nmi=nmi
