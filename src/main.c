@@ -7,6 +7,17 @@
 
 uint16_t joy, joy_prev, joy_new;
 uint16_t loops;
+uint16_t busy_line;      /* scanline the last frame's work finished on (perf) */
+
+/* current scanline from the PPU's latched V counter */
+static uint16_t scanline(void)
+{
+    (void)REG8(0x2137);             /* latch H/V */
+    (void)REG8(0x213F);             /* reset the lo/hi read toggle */
+    uint16_t lo = REG8(0x213D);
+    uint16_t hi = REG8(0x213D) & 1;
+    return lo | (hi << 8);
+}
 
 static void read_joy(void)
 {
@@ -35,6 +46,7 @@ int main(void)
         run_state();
         fsm_check();
         build_oam(state);
+        busy_line = scanline();
         /* Publish the frame, then sleep until the NMI has uploaded it.
          * Waiting on frame_ready (not nmi_count) cannot miss an NMI that
          * lands right after the publish: spec/FrameSync.tla. */

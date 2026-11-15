@@ -65,6 +65,16 @@ build/legacy/nolfied_bench.sfc: legacy/main.s $(ASSETS) experiments/c-trial/vect
 experiments/c-trial/bench.sfc experiments/c-trial/vectors.bin:
 	$(MAKE) -C experiments/c-trial
 
+# per-frame CPU use: the C game vs the legacy assembly (tools/perf_compare.py)
+build/legacy/nolfied_perf.sfc: legacy/main.s $(ASSETS)
+	mkdir -p build/legacy
+	ca65 -g --cpu 65816 -D PERF --bin-include-dir build -o build/legacy/main_perf.o legacy/main.s
+	ld65 -C legacy/snes.cfg -Ln build/legacy/nolfied_perf.lbl -o $@ build/legacy/main_perf.o
+	python3 tools/fix_checksum.py $@
+
+perf: $(ROM) build/legacy/nolfied_perf.sfc
+	python3 tools/perf_compare.py
+
 # the assembly core must still match the legacy routines it came from
 verify-port: $(LEGACY) build/core.o
 	python3 tools/verify_port.py
@@ -82,4 +92,4 @@ run: $(ROM)
 clean:
 	rm -rf build
 
-.PHONY: all run clean test tla bench legacy verify-port
+.PHONY: all run clean test tla bench legacy verify-port perf

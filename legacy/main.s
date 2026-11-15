@@ -440,6 +440,15 @@ main_loop:
         jsr fsm_check
         lda state
         jsr build_oam
+.ifdef PERF
+        lda $2137               ; perf build: scanline the frame's work ended on
+        lda $213F
+        lda $213D
+        sta $06F8
+        lda $213D
+        and #$01
+        sta $06F9
+.endif
         ; publish the frame, then sleep until the NMI has uploaded it. Waiting
         ; on frame_ready (not nmi_count) cannot miss an NMI that lands right
         ; after the publish - see spec/FrameSync.tla.
