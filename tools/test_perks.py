@@ -30,13 +30,14 @@ PERK = dict(GREED=0, CHAIN=1, TITAN=2, SNIPER=3, HUNTER=4, SWIFT=5, AEGIS=6,
 PERK_MAX = [9, 5, 3, 5, 5, 1, 3, 3, 3, 9, 2, 5, 1, 3, 5, 3]
 
 # RAM map (from the task description / main.s)
-PERKS, OFFERS, CURSOR = 0x0600, 0x0610, 0x0640
-P_TOTAL, CHAIN, KILLS, AEGIS_C = 0x0614, 0x0615, 0x0616, 0x0617
-GOAL, JACKMULT, PLUSM, XM, MULT = 0x0618, 0x0620, 0x0622, 0x0624, 0x0626
-E_X, E_Y, E_VX, E_VY, E_TYPE, E_HALF, E_TIMER, E_SPD = (
-    0x0500, 0x0510, 0x0520, 0x0530, 0x0540, 0x0550, 0x0560, 0x0570)
-I_X, I_Y, I_ON = 0x05A0, 0x05A8, 0x05B0
-GRID = 0x0880
+from syms import S
+PERKS, OFFERS, CURSOR = S.run_perks, S.offers, S.cursor
+P_TOTAL, CHAIN, KILLS, AEGIS_C = S.run_perks + 16, S.chain, S.kills, S.aegis_left
+GOAL, JACKMULT, MULT = S.goal, S.stage_mult, S.last_mult
+E_X, E_Y, E_VX, E_VY, E_SPD = S.e_x, S.e_y, S.e_vx, S.e_vy, S.e_spd   # words: slot*2
+E_TYPE, E_HALF, E_TIMER = S.e_type, S.e_half, S.e_timer              # bytes: slot
+I_X, I_Y, I_ON = S.i_x, S.i_y, S.i_on                                 # bytes: slot
+GRID = S.grid
 
 ST_READY, ST_PLAY, ST_DYING, ST_CLEAR, ST_DRAFT = 1, 2, 3, 4, 6
 
@@ -84,12 +85,10 @@ class Game:
         self.e.poke(self.a(n), bytes([v & 255, (v >> 8) & 255]))
 
     def score(self):
+        """score in units of 10 points (a plain 32-bit integer)"""
         r = self.e.wram()
         a = self.lab["score"]
-        v = 0
-        for i in range(3, -1, -1):
-            v = v * 100 + (r[a + i] >> 4) * 10 + (r[a + i] & 15)
-        return v
+        return int.from_bytes(r[a:a + 4], "little")
 
     def pos(self):
         p = self.w("p_idx")
@@ -106,10 +105,10 @@ class Game:
     def sanitize(self):
         r = self.e.wram()
         for s in range(8):
-            if r[E_TYPE + s * 2] and s not in self.keep:
+            if r[E_TYPE + s] and s not in self.keep:
                 self.e.poke(E_VX + s * 2, b"\0\0")
                 self.e.poke(E_VY + s * 2, b"\0\0")
-                self.e.poke(E_TIMER + s * 2, b"\xff")
+                self.e.poke(E_TIMER + s, b"\xff")
 
     def put_enemy(self, slot, cx, cy):
         """centre enemy `slot` on field cell (cx, cy)."""
@@ -120,17 +119,17 @@ class Game:
 
     def park_minions(self):
         for s in range(1, 8):
-            if self.b(E_TYPE + s * 2) == 2:
+            if self.b(E_TYPE + s) == 2:
                 self.put_enemy(s, 56 + s % 3, 4 + s % 3)
 
     def clear_items(self):
         for s in range(4):
-            self.poke8(I_ON + s * 2, 0)
+            self.poke8(I_ON + s, 0)
 
     def put_item(self, slot, cx, cy):
-        self.poke8(I_X + slot * 2, cx * 4 + 2)
-        self.poke8(I_Y + slot * 2, cy * 4 + 2)
-        self.poke8(I_ON + slot * 2, 1)
+        self.poke8(I_X + slot, cx * 4 + 2)
+        self.poke8(I_Y + slot, cy * 4 + 2)
+        self.poke8(I_ON + slot, 1)
 
     # --- flow
     def boot_to_draft(self):
@@ -184,8 +183,8 @@ class Game:
             kills=r[KILLS], aegis=r[AEGIS_C], goal=self.w(GOAL), pspeed=r[self.lab["pspeed"]],
             lives=r[self.lab["lives"]], stage=r[self.lab["stage"]],
             espd=[self.w(E_SPD + s * 2) for s in range(8)],
-            etype=[r[E_TYPE + s * 2] for s in range(8)],
-            items=sum(1 for s in range(4) if r[I_ON + s * 2]),
+            etype=[r[E_TYPE + s] for s in range(8)],
+            items=sum(1 for s in range(4) if r[I_ON + s]),
             score=self.score())
 
     # --- movement
@@ -211,7 +210,7 @@ class Game:
         # place objects inside the region that is about to be enclosed
         for k in range(minion_inside):
             slot = 1 + k
-            assert self.b(E_TYPE + slot * 2) == 2
+            assert self.b(E_TYPE + slot) == 2
             self.put_enemy(slot, x0 - w // 2 - (k % 2), 47 - h // 2 - k // 2 * 0)
         for k in range(item_inside):
             self.put_item(k, x0 - w // 2 + k, 47 - h // 2 - 1 + 0 * k)
@@ -230,11 +229,11 @@ class Game:
             self.frame()
         r = self.e.wram()
         obs = dict(before=before, newly=self.w("newly"), mult=self.w(MULT),
-                   plusm=self.w(PLUSM), xm=self.w(XM), chain=r[CHAIN], kills=r[KILLS],
+                   chain=r[CHAIN], kills=r[KILLS],
                    jack=self.w(JACKMULT), score=self.score(), freeze=self.w("freeze"),
                    state=r[self.lab["state"]], pct=r[self.lab["pct"]],
                    claimed=self.w("claimed"), goal=self.w(GOAL),
-                   items_on=sum(1 for s in range(4) if r[I_ON + s * 2]))
+                   items_on=sum(1 for s in range(4) if r[I_ON + s]))
         return obs
 
     def next_start(self, gap=1):
@@ -287,8 +286,7 @@ def score_check(P, obs, kills_new=0, items=0, extra=0, tag=""):
     plus, xm, mult = model(P, obs["newly"], obs["before"]["chain"], obs["kills"], obs["jack"],
                            obs["before"]["ptotal"])
     res.append((f"{tag}MULT={mult}", obs["mult"] == mult,
-                f"got {obs['mult']} want {mult} (plusm got {obs['plusm']} want {plus}, "
-                f"xm got {obs['xm']} want {xm}, newly {obs['newly']}, chain {obs['before']['chain']}, "
+                f"got {obs['mult']} want {mult} (plus want {plus}, xm want {xm}, newly {obs['newly']}, chain {obs['before']['chain']}, "
                 f"kills {obs['kills']}, jack {obs['jack']}, ptotal {obs['before']['ptotal']})"))
     want = obs["newly"] * mult + 50 * kills_new + 100 * items + extra
     got = obs["score"] - obs["before"]["score"]
@@ -352,7 +350,6 @@ def sc_titan(g):
     g.next_start(2)
     obs = g.claim(SMALL)
     res += score_check(cfg_list(cfg), obs, tag="small ")
-    res.append(("small claim no titan", obs["xm"] == 1, f"xm={obs['xm']}"))
     return res
 
 
@@ -540,7 +537,6 @@ def sc_glass_score(g):
     start(g, cfg)
     obs = g.claim(SMALL)
     res = score_check(cfg_list(cfg), obs)
-    res.append(("xm==3", obs["xm"] == 3, f"xm={obs['xm']}"))
     return res
 
 

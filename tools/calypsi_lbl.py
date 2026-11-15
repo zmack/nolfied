@@ -9,6 +9,13 @@ text = open(sys.argv[1]).read()
 syms = {}
 for name, addr in re.findall(r"^\s+([A-Za-z_]\w*) = ([0-9A-Fa-f]+)$", text, re.M):
     syms[name] = int(addr, 16)
+# section bounds the tests need (e.g. the C stack, for overflow checks)
+for sec in ("stack",):
+    m = re.search(rf"^{sec}\s+.*?placed at address ([0-9A-Fa-f]+)-([0-9A-Fa-f]+)", text, re.M) or \
+        re.search(rf"section '{sec}'\s+placed at address ([0-9A-Fa-f]+)-([0-9A-Fa-f]+)", text, re.M)
+    if m:
+        syms[f"__{sec}_start"] = int(m.group(1), 16)
+        syms[f"__{sec}_end"] = int(m.group(2), 16)
 with open(sys.argv[2], "w") as f:
     for name, addr in sorted(syms.items(), key=lambda kv: kv[1]):
         f.write(f"al {addr:06X} .{name}\n")

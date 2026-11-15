@@ -30,8 +30,12 @@ ST = {0: "TITLE", 1: "READY", 2: "PLAY", 3: "DYING", 4: "CLEAR", 5: "OVER",
       6: "DRAFT", 7: "PAUSE", 8: "BOOT"}
 # longest a timed state may last, in frames (timer + forced-blank load slack)
 MAX_STAY = {1: 120 + 30, 3: 90 + 30, 4: 240 + 30, 5: 300 + 30}
-FSM_ERRS, FSM_KIND, FSM_FROM, FSM_TO, APU_DEAD, LOOPS = 0x670, 0x671, 0x672, 0x673, 0x678, 0x67A
-STACK_FLOOR = 0x1500          # GRID padding ends here; only the stack lives above
+from syms import S  # noqa: E402
+FSM_ERRS, FSM_KIND, FSM_FROM, FSM_TO, APU_DEAD, LOOPS = S.fsm_errs, S.fsm_kind, S.fsm_from, S.fsm_to, S.apu_dead, S.loops
+# the C stack is the `stack` section (1KB, grows down from its end): its
+# lowest 64 bytes must never be touched
+STACK_LO = S.get("__stack_start")
+STACK_GUARD = 64
 
 seed = int(sys.argv[1]) if len(sys.argv) > 1 else 1
 FRAMES = int(sys.argv[2]) if len(sys.argv) > 2 else 30000
@@ -117,7 +121,7 @@ def fail(msg):
 
 
 def grid_ok(m):
-    g = [[m[0x880 + y * 64 + x] for x in range(60)] for y in range(48)]
+    g = [[m[S.grid + y * 64 + x] for x in range(60)] for y in range(48)]
     for y in range(48):
         for x in range(60):
             v = g[y][x]
@@ -157,7 +161,7 @@ def check(m):
     if not 0 <= m[lab["lives"]] <= 9:
         fail(f"lives out of range: {m[lab['lives']]}")
     # stack depth: everything between the grid padding and $1F00 must be untouched
-    deep = next((a for a in range(STACK_FLOOR, 0x1F00) if m[a]), None)
+    deep = next((a for a in range(STACK_LO, STACK_LO + STACK_GUARD) if m[a]), None)
     if deep is not None:
         fail(f"stack grew down to ${deep:04X}")
     # liveness
@@ -194,7 +198,7 @@ while e.frames < FRAMES and len(failures) < 10:
     if st in (0, 5) and rnd.random() < 0.5:
         gen = g_mash                   # keep starting games
     # storm the transition frames: when a stage is nearly won, hammer everything
-    if st == 2 and m[lab["pct"]] + 6 >= w16(m, 0x618) and rnd.random() < 0.5:
+    if st == 2 and m[lab["pct"]] + 6 >= w16(m, S.goal) and rnd.random() < 0.5:
         gen = g_noise
     n = rnd.randint(1, 60)
     for btns in gen(n):

@@ -17,7 +17,8 @@ sys.path.insert(0, os.path.dirname(__file__))
 from retro import Emu  # noqa: E402
 
 ST = {0: "TITLE", 1: "READY", 2: "PLAY", 3: "DYING", 4: "CLEAR", 5: "OVER", 6: "DRAFT", 7: "PAUSE"}
-FSM_ERRS, APU_DEAD, LOOPS, CLAIMED_FREEZE = 0x670, 0x678, 0x67A, None
+from syms import S  # noqa: E402
+FSM_ERRS, FSM_KIND, APU_DEAD, LOOPS = S.fsm_errs, S.fsm_kind, S.apu_dead, S.loops
 
 lab = {}
 for line in open("build/nolfied.lbl"):
@@ -87,8 +88,8 @@ check("RETRACT -> EDGE when trail empties", r()[lab["pmode"]] == 0 and w(lab["tr
 freeze_enemies()
 e.poke(lab["invuln"], b"\0\0"); e.run(12, "b", "up")
 m = r(); p = w(lab["p_idx"]); px, py = (p & 63) * 4 + 2, (p >> 6) * 4 + 2
-e.poke(0x502, bytes([0, px])); e.poke(0x512, bytes([0, py]))   # minion slot 1 onto the player
-e.poke(0x542, b"\x02")
+e.poke(S.e_x + 2, bytes([0, px])); e.poke(S.e_y + 2, bytes([0, py]))   # minion slot 1 onto the player
+e.poke(S.e_type + 1, b"\x02")
 lives = r()[lab["lives"]]
 e.run(3)
 check("PLAY -> DYING on hit", state() == "DYING")
@@ -118,7 +119,7 @@ freeze_enemies()
 e.poke(lab["invuln"], b"\0\0")
 e.run(12, "b", "up")
 p = w(lab["p_idx"]); px, py = (p & 63) * 4 + 2, (p >> 6) * 4 + 2
-e.poke(0x502, bytes([0, px])); e.poke(0x512, bytes([0, py])); e.poke(0x542, b"\x02")
+e.poke(S.e_x + 2, bytes([0, px])); e.poke(S.e_y + 2, bytes([0, py])); e.poke(S.e_type + 1, b"\x02")
 e.run(3)
 check("last life: PLAY -> DYING", state() == "DYING")
 e.run(100)
@@ -133,8 +134,8 @@ e.run(50); e.run(2, "b"); e.run(140)
 e.poke(lab["pmode"], b"\x01"); e.poke(lab["trail_len"], b"\0\0")   # "cutting" with no trail
 e.run(2)
 m = r()
-neg = m[FSM_ERRS] >= 1 and m[0x671] == 3
-print(f"{'PASS' if neg else 'FAIL'}  checker flags a mode/trail mismatch     errs={m[FSM_ERRS]} kind={m[0x671]}")
+neg = m[FSM_ERRS] >= 1 and m[FSM_KIND] == 3
+print(f"{'PASS' if neg else 'FAIL'}  checker flags a mode/trail mismatch     errs={m[FSM_ERRS]} kind={m[FSM_KIND]}")
 fails += 0 if neg else 1
 
 print(f"\n{'OK' if fails == 0 else 'FAILED'}: {fails} failure(s)")
