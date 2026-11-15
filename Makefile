@@ -1,10 +1,13 @@
 ROM    := build/nolfied.sfc
-ASSETS := build/bgtiles.bin
+ASSETS := build/bgtiles.bin build/icons.bin
 
 all: $(ROM)
 
-$(ASSETS): tools/gen_assets.py
+build/bgtiles.bin: tools/gen_assets.py
 	python3 tools/gen_assets.py build
+
+build/icons.bin: tools/gen_icons.py
+	python3 tools/gen_icons.py build
 
 build/main.o: src/main.s $(ASSETS)
 	ca65 -g --cpu 65816 --bin-include-dir build -o $@ src/main.s

@@ -25,6 +25,7 @@ The ready-to-run ROM is **[`dist/nolfied.sfc`](dist/nolfied.sfc)** (256KB LoROM,
 | Hold **B** (or A / X / Y) + D-pad | Leave the edge and cut a line into open space |
 | Let go of B while cutting | Your ship pulls back along the line to where it started |
 | Start | Start the game / pause |
+| Left / Right, B, Select (draft) | Pick a card, take it, reroll once |
 
 ## Rules
 
@@ -32,11 +33,45 @@ The ready-to-run ROM is **[`dist/nolfied.sfc`](dist/nolfied.sfc)** (256KB LoROM,
   eye-boss** is claimed and that part of the picture appears.
 - If the boss or a star-shard touches your line, or touches you while you're cutting,
   you lose a life.
-- Star-shards caught inside a claimed area are destroyed (+500).
+- Star-shards caught inside a claimed area are destroyed.
 - **?** capsules you enclose give a random power-up: speed up, a 10s shield, freezing
   the enemies, or an extra life.
-- Points: 10 per cell claimed, plus a bonus on stage clear for every percent over 80.
 - There are four hidden pictures that repeat, and each stage adds speed and shards.
+
+## Chips x Mult, chains and perks
+
+Scoring works like Balatro:
+
+- Every claim scores **chips x mult**. Chips are the number of cells you claimed. You
+  see the sum pop up under the field, e.g. `220 X 12 = +26400`, and the screen
+  shakes and flashes harder for bigger claims and bigger multipliers.
+- **Chain:** each claim adds one link, and each link adds +1 mult. You lose the chain if
+  you die, or if 10 seconds pass without a claim (the orange bar on the HUD).
+- **Perk draft:** before every stage you pick **1 of 3 perk cards**. Perks stack, and
+  you can reroll the offer once per draft with SELECT. Rarity sets the frame colour:
+  common is blue, special is green and rare is pink. Your perks show along the top row.
+
+| Perk | Rarity | Effect |
+| --- | --- | --- |
+| GREED | common | +2 mult on every claim |
+| CHAIN | common | every chain link is worth +1 more mult |
+| TITAN | special | x2 mult on claims of 150+ cells (x3, x4 when stacked) |
+| SNIPER | common | +6 mult on claims under 40 cells |
+| HUNTER | common | +3 mult per shard killed this stage |
+| SWIFT | common | move faster |
+| AEGIS | special | absorbs one hit per stage |
+| STASIS | common | each claim freezes the enemies for 1.5s |
+| CHRONO | special | enemies 20% slower |
+| PHOENIX | special | +1 life |
+| LUCKY | common | +1 capsule each stage |
+| PRISM | rare | +1 mult for each perk you own |
+| GLASS | rare | x3 mult, but costs a life |
+| QUOTA | special | stage goal -5% |
+| JACKPOT | common | each capsule gives +4 mult for the rest of the stage |
+| MIDAS | special | x2 stage-clear bonus |
+
+Some combinations work well together: SNIPER + CHAIN for lots of quick small claims,
+TITAN + GLASS for a few huge cuts, or PRISM once you have a lot of perks.
 
 ## Building
 
@@ -50,6 +85,7 @@ make            # -> build/nolfied.sfc
 
 - `tools/gen_assets.py`: generates all the graphics: the field tiles, font, logo,
   sprites, and the four stage pictures, which are drawn in code.
+- `tools/gen_icons.py`: the 32x32 perk card icons and the 8x8 HUD versions.
 - `src/main.s`: the whole game in 65816 assembly, with a tiny SPC700 sound driver
   embedded as bytes.
 - `tools/retro.py` / `tools/playtest.py`: a headless libretro host (uses the

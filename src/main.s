@@ -69,9 +69,76 @@ E_SPD    = $0570
 X_X      = $0580            ; explosions: 4 slots
 X_Y      = $0588
 X_T      = $0590
-I_X      = $05A0            ; items: 2 slots
-I_Y      = $05A4
-I_ON     = $05A8
+I_X      = $05A0            ; items: 4 slots
+I_Y      = $05A8
+I_ON     = $05B0
+; roguelite / juice state (absolute RAM, survives init_entities)
+PERKS    = $0600            ; 16 perk stack counts
+OFFERS   = $0610            ; 3 perks on offer
+P_TOTAL  = $0614
+CHAIN    = $0615
+KILLS    = $0616
+AEGIS_C  = $0617
+GOAL     = $0618            ; word
+SHAKE_T  = $061A
+SH_X     = $061B
+SH_Y     = $061C
+FL_R     = $061D
+FL_G     = $061E
+FL_B     = $061F
+JACKMULT = $0620            ; word
+PLUSM    = $0622            ; word
+XM       = $0624            ; word
+MULT     = $0626            ; word
+CHIPS_B  = $0628            ; word, BCD
+PROD     = $062A            ; 4 bytes BCD
+PRN      = $062E            ; 4 bytes BCD print buffer
+SCR_H    = $0632            ; word
+SCR_V    = $0634            ; word
+N_ITEMS  = $0636            ; word (count*2)
+M_A      = $0638
+M_B      = $0639
+M_RES    = $063A            ; word
+GW       = $063C
+GR       = $063D
+GK       = $063E            ; word
+CURSOR   = $0640            ; word
+NZ_ON    = $0642
+CS_V     = $0644            ; word
+CS_T     = $0646            ; word
+CT_COL   = $0648            ; word
+CT_P     = $064A            ; word
+CT_L     = $064C            ; word
+DC_C0    = $064E            ; word
+DC_R     = $0650            ; word
+DC_C     = $0652            ; word
+DC_FR    = $0654
+DC_IN    = $0655
+CHAIN_T  = $0656            ; word: frames until the chain breaks
+CHAIN_BAR = $0658
+REROLLS  = $0659
+RUN_END  = $0660
+
+P_GREED   = 0
+P_CHAIN   = 1
+P_TITAN   = 2
+P_SNIPER  = 3
+P_HUNTER  = 4
+P_SWIFT   = 5
+P_AEGIS   = 6
+P_STASIS  = 7
+P_CHRONO  = 8
+P_PHOENIX = 9
+P_LUCKY   = 10
+P_PRISM   = 11
+P_GLASS   = 12
+P_QUOTA   = 13
+P_JACKPOT = 14
+P_MIDAS   = 15
+
+CGWSEL   = $2130
+CGADSUB  = $2131
+COLDATA  = $2132
 GRID     = $0880            ; 48 rows x 64 (60 used), padded 2 rows each side
 BG1MAP   = $7E2000          ; BG1 tilemap shadow (2KB)
 BG3MAP   = $7E2800          ; BG3 tilemap shadow (2KB)
@@ -99,6 +166,7 @@ ST_PLAY  = 2
 ST_DYING = 3
 ST_CLEAR = 4
 ST_OVER  = 5
+ST_DRAFT = 6
 
 PM_EDGE    = 0
 PM_DRAW    = 1
@@ -109,6 +177,9 @@ BTN_CUT   = $C0C0           ; B, Y, A or X
 
 ATTR_W = $20                ; BG3 text: priority, palette 0 (white)
 ATTR_Y = $24                ; palette 1 (yellow)
+ATTR_G = $2C                ; palette 3 (green)
+ATTR_P = $30                ; palette 4 (pink)
+ATTR_O = $34                ; palette 5 (orange)
 
 .macro A8
         sep #$20
@@ -311,6 +382,7 @@ sfx_ch:      .res 2
 main_loop:
         jsr wait_nmi
         jsr read_joy
+        jsr juice_update
         jsr sfx_update
         A16
         lda state
@@ -326,7 +398,7 @@ main_loop:
 .endproc
 
 state_tab:
-        .word st_title, st_ready, st_play, st_dying, st_clear, st_over
+        .word st_title, st_ready, st_play, st_dying, st_clear, st_over, st_draft
 
 .proc irq_stub
         .a8
@@ -373,7 +445,7 @@ state_tab:
         beq nobg1
         lda #$80
         sta VMAIN
-        ldx #($7000 + 3*32)
+        ldx #($5000 + 3*32)
         stx VMADDL
         lda #$01
         sta DMAP0
@@ -393,7 +465,7 @@ nobg1:
         beq nobg3
         lda #$80
         sta VMAIN
-        ldx #$7800
+        ldx #$5800
         stx VMADDL
         lda #$01
         sta DMAP0
@@ -422,6 +494,31 @@ nobg3:
         sta CGDATA
         lda trail_cols+1,x
         sta CGDATA
+        lda SCR_H
+        sta BG1HOFS
+        lda SCR_H+1
+        sta BG1HOFS
+        lda SCR_H
+        sta BG2HOFS
+        lda SCR_H+1
+        sta BG2HOFS
+        lda SCR_V
+        sta BG1VOFS
+        lda SCR_V+1
+        sta BG1VOFS
+        lda SCR_V
+        sta BG2VOFS
+        lda SCR_V+1
+        sta BG2VOFS
+        lda FL_R
+        ora #$20
+        sta COLDATA
+        lda FL_G
+        ora #$40
+        sta COLDATA
+        lda FL_B
+        ora #$80
+        sta COLDATA
         lda tm_val
         sta TM
         lda bright
@@ -563,16 +660,27 @@ done:
         VRAM_LOAD bg_tiles,   $0000, 8192
         VRAM_LOAD font_tiles, $4000, (font_end - font_tiles)
         VRAM_LOAD obj_tiles,  $6000, 4096
-        CGRAM_LOAD bg3_pal, 0, 24
+        VRAM_LOAD icon_tiles, $7000, 8192
+        VRAM_LOAD mini_tiles, $43C0, 256
+        CGRAM_LOAD bg3_pal, 0, 48
         CGRAM_LOAD bg1_pal, 32, 32
+        CGRAM_LOAD card_pals, 64, 96
         CGRAM_LOAD obj_pal, 128, 128
+        CGRAM_LOAD icon_pal, 192, 32
+        stz CGWSEL              ; colour math: add fixed colour (screen flashes)
+        lda #$3F
+        sta CGADSUB
+        lda #$E0
+        sta COLDATA
+        ldx #$03FF
+        stx SCR_V
         lda #$09                ; mode 1, BG3 high priority
         sta BGMODE
-        lda #$70
+        lda #$50
         sta BG1SC
-        lda #$74
+        lda #$54
         sta BG2SC
-        lda #$78
+        lda #$58
         sta BG3SC
         lda #$10
         sta BG12NBA
@@ -633,7 +741,7 @@ done:
         sta dma_src+2
         ldx #2048
         stx dma_len
-        ldx #$7000
+        ldx #$5000
         jmp dma_to_vram
 .endproc
 
@@ -646,7 +754,7 @@ done:
         sta dma_src+2
         ldx #2048
         stx dma_len
-        ldx #$7800
+        ldx #$5800
         jmp dma_to_vram
 .endproc
 
@@ -694,7 +802,7 @@ done:
         sta dma_len
         A8
         phx
-        ldx #$7400
+        ldx #$5400
         jsr dma_to_vram
         plx
         A16
@@ -877,10 +985,12 @@ done:
         PRINT 1, 1, s_score, ATTR_W
         PRINT 1, 19, s_stage, ATTR_W
         PRINT 2, 1, s_area, ATTR_W
-        PRINT 2, 19, s_lives, ATTR_W
+        PRINT 2, 19, s_chain, ATTR_W
         lda #ATTR_Y
         sta text_attr
         ldx #(1*64 + 7*2)
+        lda score+3
+        jsr put_digit
         lda score+2
         jsr put_bcd
         lda score+1
@@ -895,15 +1005,84 @@ done:
         ldx #(2*64 + 6*2)
         lda pct
         jsr put_dec2
-        ldx #(2*64 + 25*2)
+        ldx #(2*64 + 10*2)
+        lda GOAL
+        jsr put_dec2
+        ldx #(2*64 + 14*2)
         lda #$0A                ; '*' heart is ASCII 42 -> tile 10
         sta f:BG3MAP,x
-        lda #ATTR_Y
+        lda #ATTR_P
         sta f:BG3MAP+1,x
         inx
         inx
         lda lives
         jsr put_digit
+        lda #ATTR_O
+        sta text_attr
+        ldx #(2*64 + 25*2)
+        lda CHAIN
+        jsr put_dec2
+        ldx #$0000
+        jsr draw_owned
+        lda #$FF
+        sta CHAIN_BAR
+        jsr draw_chain_bar
+        lda #$01
+        sta bg3_dirty
+        rts
+.endproc
+
+; 4-cell bar at row 2, col 28: time left before the chain breaks
+.proc draw_chain_bar
+        .a8
+        .i16
+        lda CHAIN
+        bne :+
+        lda #0
+        bra @have
+:       A16
+        lda CHAIN_T
+        clc
+        adc #149
+        sta WRDIVL
+        A8
+        lda #150
+        sta WRDIVB
+        nop
+        nop
+        nop
+        nop
+        nop
+        nop
+        nop
+        nop
+        lda RDDIVL
+@have:  cmp CHAIN_BAR
+        bne :+
+        rts
+:       sta CHAIN_BAR
+        sta tmp3
+        ldx #(2*64 + 28*2)
+        ldy #4
+@l:     lda tmp3
+        beq @blank
+        dec tmp3
+        lda #('=' - 32)
+        sta f:BG3MAP,x
+        lda CHAIN_BAR
+        cmp #2
+        lda #ATTR_O
+        bcs :+
+        lda #ATTR_P
+:       sta f:BG3MAP+1,x
+        bra @n
+@blank: lda #0
+        sta f:BG3MAP,x
+        sta f:BG3MAP+1,x
+@n:     inx
+        inx
+        dey
+        bne @l
         lda #$01
         sta bg3_dirty
         rts
@@ -1377,17 +1556,13 @@ seed_offs_end:
         bcc :+
         lda #99
 :       sta pct
-        A16
-        lda newly
-        jsr bin2bcd
-        jsr add_score
-        A8
         jsr redraw_all
         jsr check_enclosed
+        jsr score_claim
         jsr snap_player
         jsr draw_hud
         lda pct
-        cmp #80
+        cmp GOAL
         bcc @nc
         jmp enter_clear
 @nc:    SFX 0, sfx_claim
@@ -1491,6 +1666,7 @@ seed_offs_end:
         lda GRID,y
         beq @n
         stz E_TYPE,x
+        inc KILLS
         lda E_X+1,x
         sta boom_x
         lda E_Y+1,x
@@ -1518,7 +1694,7 @@ seed_offs_end:
 @in:    ldx eslot
         inx
         inx
-        cpx #4
+        cpx #8
         bne @i
         rts
 .endproc
@@ -1531,6 +1707,18 @@ seed_offs_end:
         jsr add_score
         A8
         SFX 0, sfx_item
+        lda PERKS+P_JACKPOT     ; JACKPOT: +4 mult per stack for this stage
+        asl
+        asl
+        A16
+        and #$00FF
+        clc
+        adc JACKMULT
+        sta JACKMULT
+        A8
+        lda #6
+        sta FL_R
+        sta FL_G
         jsr rand8
         and #$03
         beq @speed
@@ -1851,6 +2039,31 @@ dir_didx: .word $FFC0, 64, $FFFF, 1     ; up, down, left, right
         ora shield
         A8
         bne @no
+        lda AEGIS_C
+        beq @die
+        dec AEGIS_C             ; AEGIS soaks the hit
+        jsr wipe_trail
+        ldx #90
+        stx invuln
+        lda #10
+        sta FL_G
+        lda #16
+        sta FL_B
+        lda #12
+        sta SHAKE_T
+        ldx #.loword(s_aegis)
+        jsr show_msg
+        SFX 1, sfx_kill
+        rts
+@die:   stz CHAIN
+        jsr draw_chain_bar
+        lda #18
+        sta FL_R
+        lda #3
+        sta FL_G
+        sta FL_B
+        lda #24
+        sta SHAKE_T
         lda #ST_DYING
         sta state
         ldx #90
@@ -1917,8 +2130,34 @@ dir_didx: .word $FFC0, 64, $FFFF, 1     ; up, down, left, right
         stz pmode
         lda #2
         sta pspeed
-        lda #1
+        lda PERKS+P_SWIFT
+        beq :+
+        dec pspeed
+:       lda #1
         sta pmove_timer
+        stz KILLS
+        ldx #600
+        stx CHAIN_T
+        stz SHAKE_T
+        stz FL_R
+        stz FL_G
+        stz FL_B
+        lda PERKS+P_AEGIS
+        sta AEGIS_C
+        A16
+        stz JACKMULT
+        lda PERKS+P_QUOTA
+        and #$00FF
+        sta GOAL
+        asl
+        asl
+        clc
+        adc GOAL                ; quota * 5
+        eor #$FFFF
+        sec
+        adc #80
+        sta GOAL
+        A8
         ldx #$0000
         stx trail_len
         stx shield
@@ -1951,7 +2190,8 @@ dir_didx: .word $FFC0, 64, $FFFF, 1     ; up, down, left, right
         cmp #$0200
         bcc :+
         lda #$0200
-:       sta E_SPD
+:       jsr chrono_scale
+        sta E_SPD
         A8
         lda #60
         sta E_TIMER
@@ -1993,14 +2233,23 @@ dir_didx: .word $FFC0, 64, $FFFF, 1     ; up, down, left, right
         cmp #$0240
         bcc :+
         lda #$0240
-:       sta E_SPD,x
+:       jsr chrono_scale
+        sta E_SPD,x
         A8
         jsr randomize_vel
         inx
         inx
         dec tmp3
         bne @m
-        ; items
+        ; items: 2 + LUCKY
+        A16
+        lda PERKS+P_LUCKY
+        and #$00FF
+        clc
+        adc #2
+        asl
+        sta N_ITEMS
+        A8
         ldx #$0000
 @it:    lda #1
         sta I_ON,x
@@ -2022,7 +2271,7 @@ dir_didx: .word $FFC0, 64, $FFFF, 1     ; up, down, left, right
         sta I_Y,x
         inx
         inx
-        cpx #4
+        cpx N_ITEMS
         bne @it
         rts
 .endproc
@@ -2251,12 +2500,27 @@ dir_didx: .word $FFC0, 64, $FFFF, 1     ; up, down, left, right
         beq :+
         dec freeze
 :       lda msg_timer
-        beq @done
+        beq @chain
         dec msg_timer
-        bne @done
+        bne @chain
         A8
         lda #27
         jsr clear_row
+@chain: A8
+        lda CHAIN
+        beq @done
+        A16
+        lda CHAIN_T
+        beq @brk
+        dec CHAIN_T
+        A8
+        jmp draw_chain_bar
+@brk:   A8
+        stz CHAIN
+        jsr draw_hud
+        ldx #.loword(s_broken)
+        jsr show_msg
+        SFX 0, sfx_tick
 @done:  A8
         rts
 .endproc
@@ -2319,10 +2583,13 @@ dir_didx: .word $FFC0, 64, $FFFF, 1     ; up, down, left, right
         lda tmp0
         and #$00FF
         sta spr_x
+        jsr add_shake_x
         A8
         lda tmp1
         clc
         adc #15
+        clc
+        adc SH_Y
         sta spr_y
         stz spr_big
         rts
@@ -2339,13 +2606,18 @@ dir_didx: .word $FFC0, 64, $FFFF, 1     ; up, down, left, right
         inx
         inx
         inx
-        cpx #64
+        cpx #80
         bne @h
         stz OAM_HI
         stz OAM_HI+1
         stz OAM_HI+2
         stz OAM_HI+3
+        stz OAM_HI+4
         lda state
+        cmp #ST_DRAFT
+        bne :+
+        jmp draft_oam
+:       lda state
         cmp #ST_READY
         beq @show
         cmp #ST_PLAY
@@ -2400,10 +2672,13 @@ dir_didx: .word $FFC0, 64, $FFFF, 1     ; up, down, left, right
         sec
         sbc #8
         sta spr_x
+        jsr add_shake_x
         A8
         lda E_Y+1
         clc
         adc #7
+        clc
+        adc SH_Y
         sta spr_y
         lda nmi_count
         and #$10
@@ -2474,7 +2749,7 @@ dir_didx: .word $FFC0, 64, $FFFF, 1     ; up, down, left, right
 @in:    ldx loopi
         inx
         inx
-        cpx #4
+        cpx #8
         bne @i
         ; ---- explosions (slots 11..14)
         ldx #$0000
@@ -2496,7 +2771,7 @@ dir_didx: .word $FFC0, 64, $FFFF, 1     ; up, down, left, right
         txa
         lsr
         clc
-        adc #11
+        adc #13
         sta spr_slot
         A8
         jsr set_small_xy
@@ -2562,6 +2837,8 @@ dir_didx: .word $FFC0, 64, $FFFF, 1     ; up, down, left, right
         PRINT 23, 5, s_help2, ATTR_W
         PRINT 25, 9, s_hi, ATTR_Y
         ldx #(25*64 + 12*2)
+        lda hiscore+3
+        jsr put_digit
         lda hiscore+2
         jsr put_bcd
         lda hiscore+1
@@ -2619,8 +2896,8 @@ dir_didx: .word $FFC0, 64, $FFFF, 1     ; up, down, left, right
         sta lives
         lda #1
         sta stage
-        jsr load_stage
-        SFX 2, jingle_start
+        jsr new_run
+        jsr enter_draft
 @done:  rts
 .endproc
 
@@ -2640,9 +2917,9 @@ dir_didx: .word $FFC0, 64, $FFFF, 1     ; up, down, left, right
         stx claimed
         stz pct
         stz paused
+        jsr init_entities
         jsr clear_bg3
         jsr draw_hud
-        jsr init_entities
         PRINT 13, 12, s_stage, ATTR_Y
         ldx #(13*64 + 18*2)
         lda stage
@@ -2727,32 +3004,7 @@ dir_didx: .word $FFC0, 64, $FFFF, 1     ; up, down, left, right
         A8
         beq :+
         rts
-:       ; remove the trail
-        ldx #$0000
-        stx loopi
-@t:     A16
-        lda loopi
-        cmp trail_len
-        bcs @td
-        asl
-        tax
-        lda f:TRAIL,x
-        tax
-        A8
-        stz GRID,x
-        jsr update_cell
-        A16
-        inc loopi
-        bra @t
-@td:    A8
-        ldx #$0000
-        stx trail_len
-        lda pmode
-        beq :+
-        ldx start_idx
-        stx p_idx
-:       stz pmode
-        jsr calc_ppos
+:       jsr wipe_trail
         dec lives
         jsr draw_hud
         lda lives
@@ -2780,7 +3032,7 @@ dir_didx: .word $FFC0, 64, $FFFF, 1     ; up, down, left, right
         lda pct
         and #$00FF
         sec
-        sbc #80
+        sbc GOAL
         sta tmp0
         asl
         asl
@@ -2799,18 +3051,38 @@ dir_didx: .word $FFC0, 64, $FFFF, 1     ; up, down, left, right
         adc #50
         jsr bin2bcd
         sta bonus
-        jsr add_score
+        stz PROD
+        stz PROD+2
         A8
+        lda PERKS+P_MIDAS       ; MIDAS multiplies the clear bonus
+        inc a
+        sta M_A
+@mid:   A16
+        sed
+        clc
+        lda PROD
+        adc bonus
+        sta PROD
+        lda PROD+2
+        adc #$0000
+        sta PROD+2
+        cld
+        A8
+        dec M_A
+        bne @mid
+        jsr add_prod
+        stz SHAKE_T
+        lda #20
+        sta FL_R
+        sta FL_G
+        sta FL_B
         jsr draw_hud
         PRINT 12, 10, s_clear, ATTR_Y
         PRINT 15, 9, s_bonus, ATTR_W
         ldx #(15*64 + 16*2)
         lda #ATTR_Y
         sta text_attr
-        lda bonus+1
-        jsr put_bcd
-        lda bonus
-        jsr put_bcd
+        jsr put_prod
         lda #0
         jsr put_digit
         SFX 2, jingle_clear
@@ -2828,8 +3100,7 @@ dir_didx: .word $FFC0, 64, $FFFF, 1     ; up, down, left, right
         cmp #99
         bcs :+
         inc stage
-:       jsr load_stage
-        SFX 2, jingle_start
+:       jsr enter_draft
 @r:     rts
 .endproc
 
@@ -3103,6 +3374,1019 @@ kon_bits: .byte $01, 0, $02, 0, $04, 0, $08, 0
 :       rts
 .endproc
 
+
+; =============================================================================
+;  Roguelite layer: perks, chips x mult scoring, juice, draft screen
+; =============================================================================
+.proc mul8                      ; M_RES = M_A * M_B
+        .a8
+        .i16
+        lda M_A
+        sta $4202
+        lda M_B
+        sta $4203
+        nop
+        nop
+        nop
+        nop
+        A16
+        lda $4216
+        sta M_RES
+        A8
+        rts
+.endproc
+
+.proc add_plus                  ; PLUSM += M_RES
+        .a8
+        .i16
+        A16
+        lda PLUSM
+        clc
+        adc M_RES
+        sta PLUSM
+        A8
+        rts
+.endproc
+
+.proc add_prod                  ; score += PROD (BCD)
+        .a8
+        .i16
+        A16
+        sed
+        clc
+        lda score
+        adc PROD
+        sta score
+        lda score+2
+        adc PROD+2
+        sta score+2
+        cld
+        A8
+        rts
+.endproc
+
+.proc put_prod                  ; print PROD without leading zeros at X
+        .a8
+        .i16
+        A16
+        lda PROD
+        sta PRN
+        lda PROD+2
+        sta PRN+2
+        A8
+        jmp put_bcd32_nz
+.endproc
+
+.proc put_bcd32_nz              ; PRN = 4 BCD bytes (LE), X = map offset
+        .a8
+        .i16
+        stz NZ_ON
+        ldy #$0003
+@b:     lda PRN,y
+        pha
+        lsr
+        lsr
+        lsr
+        lsr
+        jsr nz_digit
+        pla
+        and #$0F
+        cpy #$0000
+        bne :+
+        inc NZ_ON               ; always print the last digit
+:       jsr nz_digit
+        dey
+        bpl @b
+        rts
+.endproc
+
+.proc nz_digit
+        .a8
+        .i16
+        cmp #0
+        bne @p
+        pha
+        lda NZ_ON
+        bne @z
+        pla
+        rts
+@z:     pla
+@p:     pha
+        lda #1
+        sta NZ_ON
+        pla
+        jmp put_digit
+.endproc
+
+; Score a claim: CHIPS (cells) x MULT, Balatro style.
+.proc score_claim
+        .a8
+        .i16
+        A16
+        lda #1
+        sta PLUSM
+        A8
+        ; chain: each link is worth (1 + CHAIN perks)
+        lda PERKS+P_CHAIN
+        inc a
+        sta M_A
+        lda CHAIN
+        sta M_B
+        jsr mul8
+        jsr add_plus
+        ; greed: +2 per stack
+        lda PERKS+P_GREED
+        sta M_A
+        lda #2
+        sta M_B
+        jsr mul8
+        jsr add_plus
+        ; sniper: +6 per stack on tiny claims
+        A16
+        lda newly
+        cmp #40
+        A8
+        bcs :+
+        lda PERKS+P_SNIPER
+        sta M_A
+        lda #6
+        sta M_B
+        jsr mul8
+        jsr add_plus
+:       ; hunter: +3 per stack per shard killed this stage
+        lda PERKS+P_HUNTER
+        sta M_A
+        lda KILLS
+        sta M_B
+        jsr mul8
+        lda M_RES
+        sta M_A
+        lda #3
+        sta M_B
+        jsr mul8
+        jsr add_plus
+        ; prism: +1 per stack per perk owned
+        lda PERKS+P_PRISM
+        sta M_A
+        lda P_TOTAL
+        sta M_B
+        jsr mul8
+        jsr add_plus
+        ; jackpot capsules this stage
+        A16
+        lda JACKMULT
+        sta M_RES
+        A8
+        jsr add_plus
+        ; xmult: titan on big claims, glass always
+        A16
+        lda #1
+        sta XM
+        lda newly
+        cmp #150
+        A8
+        bcc :+
+        lda PERKS+P_TITAN
+        inc a
+        sta XM
+:       lda PERKS+P_GLASS
+        beq :+
+        lda XM
+        sta M_A
+        lda #3
+        sta M_B
+        jsr mul8
+        lda M_RES
+        sta XM
+:       A16
+        stz MULT
+        lda XM
+        and #$00FF
+        tax
+@mx:    lda MULT
+        clc
+        adc PLUSM
+        sta MULT
+        dex
+        bne @mx
+        lda MULT
+        cmp #1000
+        bcc :+
+        lda #999
+        sta MULT
+:       lda newly
+        jsr bin2bcd
+        sta CHIPS_B
+        stz PROD
+        stz PROD+2
+        ldx MULT
+@pl:    sed
+        clc
+        lda PROD
+        adc CHIPS_B
+        sta PROD
+        lda PROD+2
+        adc #$0000
+        sta PROD+2
+        cld
+        dex
+        bne @pl
+        A8
+        jsr add_prod
+        ; ---- popup: "CHIPS X MULT = +POINTS"
+        lda #27
+        jsr clear_row
+        lda #ATTR_Y
+        sta text_attr
+        A16
+        lda MULT
+        cmp #10
+        A8
+        bcc :+
+        lda #ATTR_O
+        sta text_attr
+        A16
+        lda MULT
+        cmp #50
+        A8
+        bcc :+
+        lda #ATTR_P
+        sta text_attr
+:       A16
+        lda CHIPS_B
+        sta PRN
+        stz PRN+2
+        A8
+        ldx #(27*64 + 1*2)
+        jsr put_bcd32_nz
+        ldy #.loword(s_x)
+        sty str_ptr
+        jsr print
+        A16
+        lda MULT
+        jsr bin2bcd
+        sta PRN
+        stz PRN+2
+        A8
+        jsr put_bcd32_nz
+        ldy #.loword(s_eq)
+        sty str_ptr
+        jsr print
+        jsr put_prod
+        lda #0
+        jsr put_digit
+        ldx #180
+        stx msg_timer
+        ; ---- chain grows
+        lda CHAIN
+        cmp #99
+        bcs :+
+        inc CHAIN
+:       ldx #600
+        stx CHAIN_T
+        jsr draw_chain_bar
+        ; ---- juice: shake by size, flash by mult
+        A16
+        lda newly
+        lsr
+        lsr
+        lsr
+        lsr
+        lsr
+        lsr
+        cmp #14
+        bcc :+
+        lda #14
+:       clc
+        adc #6
+        A8
+        sta SHAKE_T
+        A16
+        lda MULT
+        lsr
+        lsr
+        cmp #14
+        bcc :+
+        lda #14
+:       clc
+        adc #4
+        A8
+        sta FL_R
+        sta FL_G
+        sta FL_B
+        ; ---- stasis: freeze foes 1.5s per stack
+        lda PERKS+P_STASIS
+        beq @done
+        sta M_A
+        lda #90
+        sta M_B
+        jsr mul8
+        A16
+        lda M_RES
+        cmp freeze
+        bcc :+
+        sta freeze
+:       A8
+@done:  rts
+.endproc
+
+; clear the current trail and put the player back where the cut started
+.proc wipe_trail
+        .a8
+        .i16
+        ldx #$0000
+        stx loopi
+@t:     A16
+        lda loopi
+        cmp trail_len
+        bcs @td
+        asl
+        tax
+        lda f:TRAIL,x
+        tax
+        A8
+        stz GRID,x
+        jsr update_cell
+        A16
+        inc loopi
+        bra @t
+@td:    A8
+        ldx #$0000
+        stx trail_len
+        lda pmode
+        beq :+
+        ldx start_idx
+        stx p_idx
+:       stz pmode
+        jmp calc_ppos
+.endproc
+
+; A16 speed -> A16 speed * (1 - 0.2 * CHRONO)
+.proc chrono_scale
+        .a16
+        .i16
+        phx
+        sta CS_V
+        sta WRDIVL
+        A8
+        lda #5
+        sta WRDIVB
+        nop
+        nop
+        nop
+        nop
+        nop
+        nop
+        nop
+        nop
+        A16
+        lda RDDIVL
+        sta CS_T
+        lda PERKS+P_CHRONO
+        and #$00FF
+        tax
+        lda CS_V
+        cpx #0
+        beq @d
+@l:     sec
+        sbc CS_T
+        dex
+        bne @l
+@d:     plx
+        rts
+.endproc
+
+.proc add_shake_x               ; spr_x += sign-extended SH_X
+        .a16
+        .i16
+        lda SH_X
+        and #$00FF
+        cmp #$0080
+        bcc :+
+        ora #$FF00
+:       clc
+        adc spr_x
+        sta spr_x
+        rts
+.endproc
+
+shake_big:   .byte $FE, $FF, $01, $02
+shake_small: .byte $FF, $00, $00, $01
+
+.proc juice_update
+        .a8
+        .i16
+        lda SHAKE_T
+        beq @still
+        dec SHAKE_T
+        jsr rand8
+        and #$03
+        tax
+        lda SHAKE_T
+        cmp #10
+        bcc @sm
+        lda shake_big,x
+        sta SH_X
+        jsr rand8
+        and #$03
+        tax
+        lda shake_big,x
+        sta SH_Y
+        bra @set
+@sm:    lda shake_small,x
+        sta SH_X
+        jsr rand8
+        and #$03
+        tax
+        lda shake_small,x
+        sta SH_Y
+        bra @set
+@still: stz SH_X
+        stz SH_Y
+@set:   A16
+        lda SH_X
+        and #$00FF
+        cmp #$0080
+        bcc :+
+        ora #$FF00
+:       and #$03FF
+        sta SCR_H
+        lda SH_Y
+        and #$00FF
+        cmp #$0080
+        bcc :+
+        ora #$FF00
+:       clc
+        adc #$03FF
+        and #$03FF
+        sta SCR_V
+        A8
+        lda FL_R
+        beq :+
+        dec FL_R
+:       lda FL_G
+        beq :+
+        dec FL_G
+:       lda FL_B
+        beq :+
+        dec FL_B
+:       rts
+.endproc
+
+.proc new_run
+        .a8
+        .i16
+        ldx #$0000
+@c:     stz PERKS,x
+        inx
+        cpx #(RUN_END - PERKS)
+        bne @c
+        ldx #80
+        stx GOAL
+        rts
+.endproc
+
+; X = BG3 map offset of a row: owned perk minis (+ stack count)
+.proc draw_owned
+        .a8
+        .i16
+        phx
+        A16
+        ldy #32
+        lda #$0000
+@c:     sta f:BG3MAP,x
+        inx
+        inx
+        dey
+        bne @c
+        A8
+        plx
+        ldy #$0000
+@p:     lda PERKS,y
+        beq @n
+        tya
+        clc
+        adc #120
+        sta f:BG3MAP,x
+        lda #ATTR_W
+        sta f:BG3MAP+1,x
+        inx
+        inx
+        lda PERKS,y
+        cmp #2
+        bcc @one
+        lda #ATTR_Y
+        sta text_attr
+        lda PERKS,y
+        jsr put_digit
+        bra @n
+@one:   inx
+        inx
+@n:     iny
+        cpy #16
+        bne @p
+        lda #$01
+        sta bg3_dirty
+        rts
+.endproc
+
+; carry set if perk Y can be offered
+.proc eligible
+        .a8
+        .i16
+        lda PERKS,y
+        cmp perk_max,y
+        bcs @no
+        tya
+        cmp OFFERS
+        beq @no
+        cmp OFFERS+1
+        beq @no
+        cmp OFFERS+2
+        beq @no
+        sec
+        rts
+@no:    clc
+        rts
+.endproc
+
+; pick 3 distinct perks, weighted by rarity
+.proc gen_offers
+        .a8
+        .i16
+        lda #$FF
+        sta OFFERS
+        sta OFFERS+1
+        sta OFFERS+2
+        ldx #$0000
+        stx GK
+@k:     stz GW
+        ldy #$0000
+@w:     jsr eligible
+        bcc @wn
+        lda perk_weight,y
+        clc
+        adc GW
+        sta GW
+@wn:    iny
+        cpy #16
+        bne @w
+        lda GW
+        bne :+
+        lda #P_PHOENIX
+        bra @store
+:       jsr rand8
+@mod:   cmp GW
+        bcc @got
+        sec
+        sbc GW
+        bra @mod
+@got:   sta GR
+        ldy #$0000
+@f:     jsr eligible
+        bcc @fn
+        lda GR
+        cmp perk_weight,y
+        bcc @pick
+        sec
+        sbc perk_weight,y
+        sta GR
+@fn:    iny
+        cpy #16
+        bne @f
+        lda #P_PHOENIX
+        bra @store
+@pick:  tya
+@store: ldx GK
+        sta OFFERS,x
+        inx
+        stx GK
+        cpx #3
+        bne @k
+        rts
+.endproc
+
+card_col0:  .word 1, 11, 21
+card_cols:  .word 2*2, 12*2, 22*2       ; interior text column (byte offset)
+card_iconx: .word 1*8+20, 11*8+20, 21*8+20
+rar_pal:    .byte $08, $14, $18          ; BG1 attr high byte: palette 2 / 5 / 6
+rar_attr:   .byte ATTR_W, ATTR_G, ATTR_P
+
+; draw the three card frames into the BG1 shadow (selected card in gold)
+.proc draw_cards
+        .a8
+        .i16
+        ldx #$0000
+        stx GK
+@c:     A16
+        lda GK
+        asl
+        tax
+        lda card_col0,x
+        sta DC_C0
+        A8
+        ldx GK
+        lda OFFERS,x
+        A16
+        and #$00FF
+        tay
+        A8
+        lda perk_rar,y
+        A16
+        and #$00FF
+        tay
+        A8
+        lda rar_pal,y
+        sta DC_FR
+        lda #$08
+        sta DC_IN
+        lda GK
+        cmp CURSOR
+        bne :+
+        lda #$10                ; palette 4: gold
+        sta DC_FR
+        sta DC_IN
+:       ldx #5
+        stx DC_R
+@r:     ldx #$0000
+        stx DC_C
+@cl:    A16
+        lda DC_R
+        asl
+        asl
+        asl
+        asl
+        asl
+        clc
+        adc DC_C0
+        clc
+        adc DC_C
+        asl
+        tax
+        A8
+        lda DC_R
+        cmp #5
+        beq @b
+        cmp #21
+        beq @b
+        lda DC_C
+        beq @b
+        cmp #8
+        beq @b
+        lda #0
+        sta f:BG1MAP,x
+        lda DC_IN
+        sta f:BG1MAP+1,x
+        bra @nx
+@b:     lda #170
+        sta f:BG1MAP,x
+        lda DC_FR
+        sta f:BG1MAP+1,x
+@nx:    inc DC_C
+        lda DC_C
+        cmp #9
+        bne @cl
+        inc DC_R
+        lda DC_R
+        cmp #22
+        bne @r
+        A16
+        inc GK
+        lda GK
+        cmp #3
+        A8
+        beq :+
+        jmp @c
+:       lda #$01
+        sta bg1_dirty
+        rts
+.endproc
+
+; text for card GK
+.proc card_text
+        .a8
+        .i16
+        A16
+        lda GK
+        asl
+        tax
+        lda card_cols,x
+        sta CT_COL
+        A8
+        ldx GK
+        lda OFFERS,x
+        sta CT_P
+        stz CT_P+1
+        sta M_A
+        lda #10
+        sta M_B
+        jsr mul8
+        ; name (row 11)
+        A16
+        ldy M_RES
+        lda perk_txt,y
+        sta str_ptr
+        lda CT_COL
+        clc
+        adc #(11*64)
+        tax
+        A8
+        lda #ATTR_Y
+        sta text_attr
+        jsr print
+        ; description rows 13..16
+        ldx #1
+        stx CT_L
+@l:     A16
+        lda CT_L
+        asl
+        clc
+        adc M_RES
+        tay
+        lda perk_txt,y
+        sta str_ptr
+        lda CT_L
+        clc
+        adc #12
+        xba
+        lsr
+        lsr
+        clc
+        adc CT_COL
+        tax
+        A8
+        lda #ATTR_W
+        sta text_attr
+        jsr print
+        A16
+        inc CT_L
+        lda CT_L
+        cmp #5
+        A8
+        bne @l
+        ; owned count (row 18)
+        ldy CT_P
+        lda PERKS,y
+        beq @rar
+        A16
+        lda CT_COL
+        clc
+        adc #(18*64)
+        tax
+        A8
+        ldy #.loword(s_own)
+        sty str_ptr
+        lda #ATTR_G
+        sta text_attr
+        jsr print
+        ldy CT_P
+        lda PERKS,y
+        jsr put_digit
+@rar:   ; rarity (row 20)
+        ldy CT_P
+        lda perk_rar,y
+        A16
+        and #$00FF
+        tay
+        asl
+        tax
+        lda rar_str,x
+        sta str_ptr
+        lda CT_COL
+        clc
+        adc #(20*64)
+        tax
+        A8
+        lda rar_attr,y
+        sta text_attr
+        jmp print
+.endproc
+
+.proc all_card_text
+        .a8
+        .i16
+        ldx #$0000
+        stx GK
+@ct:    jsr card_text
+        A16
+        inc GK
+        lda GK
+        cmp #3
+        A8
+        bne @ct
+        lda #27
+        jsr clear_row
+        lda REROLLS
+        beq :+
+        PRINT 27, 8, s_reroll, ATTR_G
+:       rts
+.endproc
+
+.proc enter_draft
+        .a8
+        .i16
+        lda #$80
+        sta INIDISP
+        stz NMITIMEN
+        jsr music_stop
+        lda #ST_DRAFT
+        sta state
+        ldx #$0000
+        stx CURSOR
+        ldx #40
+        stx timer
+        stz SHAKE_T
+        stz FL_R
+        stz FL_G
+        stz FL_B
+        jsr juice_update
+        jsr gen_offers
+        lda #1
+        sta REROLLS
+        A16
+        lda #(85 | $0800)
+        ldx #$0000
+@f:     sta f:BG1MAP,x
+        inx
+        inx
+        cpx #2048
+        bne @f
+        A8
+        jsr draw_cards
+        jsr clear_bg3
+        PRINT 1, 9, s_choose, ATTR_Y
+        PRINT 2, 10, s_forstage, ATTR_W
+        ldx #(2*64 + 20*2)
+        lda stage
+        jsr put_dec2
+        jsr all_card_text
+        lda P_TOTAL
+        beq :+
+        PRINT 23, 11, s_yours, ATTR_W
+        ldx #(24*64)
+        jsr draw_owned
+:       PRINT 26, 3, s_dhelp, ATTR_W
+        jsr upload_bg1
+        jsr upload_bg3
+        jsr build_oam
+        jsr upload_oam
+        lda #$17
+        sta tm_val
+        sta TM
+        stz bg1_dirty
+        stz bg3_dirty
+        lda #$0F
+        sta bright
+        sta INIDISP
+        lda RDNMI
+        lda #$81
+        sta NMITIMEN
+        SFX 2, jingle_draft
+        rts
+.endproc
+
+.proc st_draft
+        .a8
+        .i16
+        A16
+        lda timer
+        beq :+
+        dec timer
+:       lda joy_new
+        and #$0200              ; left
+        A8
+        beq @nl
+        lda CURSOR
+        bne :+
+        lda #3
+:       dec a
+        sta CURSOR
+        jsr draw_cards
+        SFX 0, sfx_tick
+@nl:    A16
+        lda joy_new
+        and #$0100              ; right
+        A8
+        beq @nr
+        lda CURSOR
+        inc a
+        cmp #3
+        bcc :+
+        lda #0
+:       sta CURSOR
+        jsr draw_cards
+        SFX 0, sfx_tick
+@nr:    A16
+        lda joy_new
+        and #$2000              ; select: reroll
+        A8
+        beq @nrr
+        lda REROLLS
+        beq @nrr
+        dec REROLLS
+        jsr gen_offers
+        jsr draw_cards
+        ldx #11
+        stx loopi
+:       lda loopi
+        jsr clear_row
+        inc loopi
+        lda loopi
+        cmp #21
+        bne :-
+        jsr all_card_text
+        SFX 0, sfx_item
+@nrr:   A16
+        lda timer
+        bne @r
+        lda joy_new
+        and #$D080              ; B, Y, Start or A takes the perk
+        beq @r
+        A8
+        ldx CURSOR
+        lda OFFERS,x
+        A16
+        and #$00FF
+        tay
+        A8
+        lda PERKS,y
+        inc a
+        sta PERKS,y
+        inc P_TOTAL
+        cpy #P_PHOENIX
+        bne :+
+        lda lives
+        cmp #9
+        bcs :+
+        inc lives
+:       cpy #P_GLASS
+        bne :+
+        lda lives
+        cmp #2
+        bcc :+
+        dec lives
+:       jsr load_stage
+        SFX 2, jingle_start
+        rts
+@r:     A8
+        rts
+.endproc
+
+.proc draft_oam
+        .a8
+        .i16
+        ldx #$0000
+        stx loopi
+@l:     A16
+        lda loopi
+        sta spr_slot
+        asl
+        tax
+        lda card_iconx,x
+        sta spr_x
+        A8
+        ldx loopi
+        lda OFFERS,x
+        pha
+        and #$03
+        asl
+        asl
+        sta tmp0
+        pla
+        lsr
+        lsr
+        asl
+        asl
+        asl
+        asl
+        asl
+        asl
+        ora tmp0
+        sta spr_tile
+        lda #47
+        sta spr_y
+        lda loopi
+        cmp CURSOR
+        bne :+
+        lda nmi_count           ; selected icon bobs
+        and #$10
+        beq :+
+        lda #45
+        sta spr_y
+:       lda #$39                ; priority 3, palette 4, second name table
+        sta spr_attr
+        lda #1
+        sta spr_big
+        jsr put_sprite
+        A16
+        inc loopi
+        lda loopi
+        cmp #3
+        A8
+        bne @l
+        rts
+.endproc
+
 ; =============================================================================
 .segment "RODATA"
 zero_byte: .byte 0
@@ -3272,6 +4556,9 @@ bg3_pal:
         .word RGB(0,0,0), RGB(255,255,255), RGB(16,16,40), RGB(160,200,255)
         .word RGB(0,0,0), RGB(255,230,80), RGB(40,16,0), RGB(255,140,40)
         .word RGB(0,0,0), RGB(40,170,255), RGB(8,8,40), RGB(230,250,255)
+        .word RGB(0,0,0), RGB(130,255,150), RGB(0,30,0), RGB(200,255,200)
+        .word RGB(0,0,0), RGB(255,140,230), RGB(40,0,30), RGB(255,200,240)
+        .word RGB(0,0,0), RGB(255,150,40), RGB(50,20,0), RGB(255,220,120)
 bg1_pal:
         .word RGB(0,0,0), RGB(14,18,52), RGB(52,64,130), RGB(210,240,255)
         .word RGB(255,220,40), RGB(90,130,200), 0, 0
@@ -3281,8 +4568,7 @@ title_map: .incbin "title.map"
 
 s_score:  .asciiz "SCORE"
 s_stage:  .asciiz "STAGE"
-s_area:   .asciiz "AREA   %/80%"
-s_lives:  .asciiz "LIVES"
+s_area:   .asciiz "AREA   %/  %"
 s_ready:  .asciiz "READY!"
 s_paused: .asciiz "PAUSED"
 s_clear:  .asciiz "STAGE CLEAR!"
@@ -3297,6 +4583,133 @@ s_speed:  .asciiz "SPEED UP!"
 s_shield: .asciiz "SHIELD ON!"
 s_freeze: .asciiz "ENEMIES FROZEN!"
 s_1up:    .asciiz "EXTRA LIFE!"
+
+
+; ---- perks
+perk_max:    .byte 9, 5, 3, 5, 5, 1, 3, 3, 3, 9, 2, 5, 1, 3, 5, 3
+perk_rar:    .byte 0, 0, 1, 0, 0, 0, 1, 0, 1, 1, 0, 2, 2, 1, 0, 1
+perk_weight: .byte 4, 4, 2, 4, 4, 4, 2, 4, 2, 2, 4, 1, 1, 2, 4, 2
+rar_str:     .word s_common, s_special, s_rare
+perk_txt:
+        .word pt0_0, pt0_1, pt0_2, pt0_3, s_empty
+        .word pt1_0, pt1_1, pt1_2, pt1_3, pt1_4
+        .word pt2_0, pt2_1, pt2_2, pt2_3, pt2_4
+        .word pt3_0, pt3_1, pt3_2, pt3_3, pt3_4
+        .word pt4_0, pt4_1, pt4_2, pt4_3, pt4_4
+        .word pt5_0, pt5_1, pt5_2, s_empty, s_empty
+        .word pt6_0, pt6_1, pt6_2, pt6_3, pt6_4
+        .word pt7_0, pt7_1, pt7_2, pt7_3, pt7_4
+        .word pt8_0, pt8_1, pt8_2, pt8_3, pt8_4
+        .word pt9_0, pt9_1, s_empty, s_empty, s_empty
+        .word pt10_0, pt10_1, pt10_2, pt10_3, pt10_4
+        .word pt11_0, pt11_1, pt11_2, pt11_3, pt11_4
+        .word pt12_0, pt12_1, pt12_2, pt12_3, s_empty
+        .word pt13_0, pt13_1, pt13_2, s_empty, s_empty
+        .word pt14_0, pt14_1, pt14_2, pt14_3, pt14_4
+        .word pt15_0, pt15_1, pt15_2, pt15_3, s_empty
+pt0_0: .asciiz "GREED"
+pt0_1: .asciiz "+2 MULT"
+pt0_2: .asciiz "EVERY"
+pt0_3: .asciiz "CLAIM"
+pt1_0: .asciiz "CHAIN"
+pt1_1: .asciiz "CHAIN"
+pt1_2: .asciiz "LINKS"
+pt1_3: .asciiz "+1 MULT"
+pt1_4: .asciiz "MORE"
+pt2_0: .asciiz "TITAN"
+pt2_1: .asciiz "X2 MULT"
+pt2_2: .asciiz "ON BIG"
+pt2_3: .asciiz "CLAIMS"
+pt2_4: .asciiz "(150+)"
+pt3_0: .asciiz "SNIPER"
+pt3_1: .asciiz "+6 MULT"
+pt3_2: .asciiz "ON TINY"
+pt3_3: .asciiz "CLAIMS"
+pt3_4: .asciiz "(<40)"
+pt4_0: .asciiz "HUNTER"
+pt4_1: .asciiz "+3 MULT"
+pt4_2: .asciiz "PER"
+pt4_3: .asciiz "SHARD"
+pt4_4: .asciiz "KILLED"
+pt5_0: .asciiz "SWIFT"
+pt5_1: .asciiz "MOVE"
+pt5_2: .asciiz "FASTER"
+pt6_0: .asciiz "AEGIS"
+pt6_1: .asciiz "BLOCK"
+pt6_2: .asciiz "1 HIT"
+pt6_3: .asciiz "EACH"
+pt6_4: .asciiz "STAGE"
+pt7_0: .asciiz "STASIS"
+pt7_1: .asciiz "CLAIMS"
+pt7_2: .asciiz "FREEZE"
+pt7_3: .asciiz "FOES"
+pt7_4: .asciiz "1.5 SEC"
+pt8_0: .asciiz "CHRONO"
+pt8_1: .asciiz "FOES"
+pt8_2: .asciiz "MOVE"
+pt8_3: .asciiz "20%"
+pt8_4: .asciiz "SLOWER"
+pt9_0: .asciiz "PHOENIX"
+pt9_1: .asciiz "+1 LIFE"
+pt10_0: .asciiz "LUCKY"
+pt10_1: .asciiz "+1"
+pt10_2: .asciiz "CAPSULE"
+pt10_3: .asciiz "EACH"
+pt10_4: .asciiz "STAGE"
+pt11_0: .asciiz "PRISM"
+pt11_1: .asciiz "+1 MULT"
+pt11_2: .asciiz "PER"
+pt11_3: .asciiz "PERK"
+pt11_4: .asciiz "OWNED"
+pt12_0: .asciiz "GLASS"
+pt12_1: .asciiz "X3 MULT"
+pt12_2: .asciiz "BUT"
+pt12_3: .asciiz "-1 LIFE"
+pt13_0: .asciiz "QUOTA"
+pt13_1: .asciiz "GOAL"
+pt13_2: .asciiz "-5%"
+pt14_0: .asciiz "JACKPOT"
+pt14_1: .asciiz "CAPSULE"
+pt14_2: .asciiz "GIVES"
+pt14_3: .asciiz "+4 MULT"
+pt14_4: .asciiz "(STAGE)"
+pt15_0: .asciiz "MIDAS"
+pt15_1: .asciiz "STAGE"
+pt15_2: .asciiz "BONUS"
+pt15_3: .asciiz "X2"
+s_empty:   .asciiz ""
+s_common:  .asciiz "COMMON"
+s_special: .asciiz "SPECIAL"
+s_rare:    .asciiz "RARE"
+s_own:     .asciiz "OWN "
+s_chain:   .asciiz "CHAIN"
+s_x:       .asciiz " X "
+s_eq:      .asciiz " = +"
+s_aegis:   .asciiz "AEGIS BLOCKED THE HIT!"
+s_choose:  .asciiz "CHOOSE A PERK"
+s_forstage:.asciiz "FOR STAGE"
+s_yours:   .asciiz "YOUR PERKS"
+s_dhelp:   .asciiz "LEFT/RIGHT CHOOSE  B TAKE"
+s_reroll:  .asciiz "SELECT: REROLL"
+s_broken:  .asciiz "CHAIN BROKEN!"
+
+card_pals:
+        .word 0, RGB(70,40,6), RGB(160,110,30), RGB(255,230,110), RGB(255,220,40), RGB(215,150,40), 0, 0
+        .word 0, 0, 0, 0, 0, 0, 0, 0
+        .word 0, RGB(14,18,52), RGB(52,64,130), RGB(130,255,150), RGB(255,220,40), RGB(60,170,90), 0, 0
+        .word 0, 0, 0, 0, 0, 0, 0, 0
+        .word 0, RGB(14,18,52), RGB(52,64,130), RGB(255,130,230), RGB(255,220,40), RGB(190,60,170), 0, 0
+        .word 0, 0, 0, 0, 0, 0, 0, 0
+
+sfx_tick:
+        NOTE 2, 3211, $28
+        .byte 0
+jingle_draft:
+        NOTE 5, 3211, $40
+        NOTE 5, 4288, $40
+        NOTE 10, 6423, $40
+        NOTE 10, 6423, $18
+        .byte 0
 
 pic_chr_lo:  .word .loword(pic0_chr), .loword(pic1_chr), .loword(pic2_chr), .loword(pic3_chr)
 pic_bank:    .word ^pic0_chr, ^pic1_chr, ^pic2_chr, ^pic3_chr
@@ -3335,6 +4748,9 @@ font_tiles: .incbin "font.bin"
 font_end:
 obj_tiles:  .incbin "sprites.bin"
 obj_pal:    .incbin "objpal.bin"
+icon_tiles: .incbin "icons.bin"
+icon_pal:   .incbin "iconpal.bin"
+mini_tiles: .incbin "minis.bin"
 
 ; =============================================================================
 .segment "HEADER"
