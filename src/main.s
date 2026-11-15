@@ -248,6 +248,30 @@ ATTR_O = $34                ; palette 5 (orange)
         plx
 .endmacro
 
+.ifdef BENCH
+BENCH_OUT = $7E8000
+BENCH_N   = 40
+B_I       = $06F0               ; word: vector offset (i * 24)
+B_O       = $06F2               ; word: output offset (i * 16)
+
+.macro STAMP off
+        lda $2137               ; latch H/V
+        lda $213F               ; reset the lo/hi toggle
+        lda $213C
+        sta f:BENCH_OUT+off,x
+        lda $213C
+        and #$01
+        sta f:BENCH_OUT+off+1,x
+        lda $213D
+        sta f:BENCH_OUT+off+2,x
+        lda $213D
+        and #$01
+        sta f:BENCH_OUT+off+3,x
+        lda nmi_count
+        sta f:BENCH_OUT+off+4,x
+.endmacro
+.endif
+
 ; =============================================================================
 .segment "ZEROPAGE"
 nmi_count:   .res 1
@@ -384,6 +408,9 @@ sfx_ch:      .res 2
         jsr spc_init
         jsr load_static
         jsr init_oam
+.ifdef BENCH
+        jmp run_bench           ; benchmark build: score test vectors and stop
+.endif
         A16
         lda #$ACE1
         sta rng
@@ -3630,6 +3657,10 @@ kon_bits: .byte $01, 0, $02, 0, $04, 0, $08, 0
         bne @pl
         A8
         jsr add_prod
+.ifdef BENCH
+        ldx B_O                 ; benchmark: the arithmetic ends here
+        STAMP 16
+.endif
         ; ---- popup: "CHIPS X MULT = +POINTS"
         lda #27
         jsr clear_row
@@ -4613,6 +4644,78 @@ pm_allow:
         jmp goto_state
 :       rts
 .endproc
+
+
+; =============================================================================
+;  Benchmark build (make bench): times score_claim on the vectors shared with
+;  the C trial in experiments/c-trial, results at $7E8000 (16 bytes each).
+; =============================================================================
+.ifdef BENCH
+
+.proc run_bench
+        .a8
+        .i16
+        lda #$80
+        sta NMITIMEN            ; NMI only counts frames (frame_ready stays 0)
+        ldx #$0000
+        stx B_I
+        stx B_O
+@next:  ldx B_I
+        A16
+        lda bench_vectors,x
+        sta newly
+        lda bench_vectors+4,x
+        sta JACKMULT
+        A8
+        lda bench_vectors+2,x
+        sta CHAIN
+        lda bench_vectors+3,x
+        sta KILLS
+        lda bench_vectors+6,x
+        sta P_TOTAL
+        ldy #$0000
+:       lda bench_vectors+8,x
+        sta PERKS,y
+        inx
+        iny
+        cpy #16
+        bne :-
+        ldx #$0000
+        stx freeze
+        ldx B_O
+        STAMP 6
+        jsr score_claim
+        ldx B_O
+        STAMP 11
+        A16
+        lda MULT
+        sta f:BENCH_OUT,x
+        lda PROD
+        sta f:BENCH_OUT+2,x
+        lda PROD+2
+        sta f:BENCH_OUT+4,x
+        lda B_O
+        clc
+        adc #24
+        sta B_O
+        lda B_I
+        clc
+        adc #24
+        sta B_I
+        cmp #(BENCH_N * 24)
+        A8
+        beq :+
+        jmp @next
+:
+        lda #1
+        sta f:BENCH_OUT+$0FFF   ; done
+:       bra :-
+.endproc
+
+.segment "RODATA"
+bench_vectors: .incbin "vectors.bin"
+.segment "CODE"
+.endif
 
 ; =============================================================================
 .segment "RODATA"

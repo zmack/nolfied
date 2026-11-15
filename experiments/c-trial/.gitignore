@@ -1,0 +1,7 @@
+*.o
+*.elf
+*.raw
+*.lst
+*.sfc
+vectors.h
+vectors.bin

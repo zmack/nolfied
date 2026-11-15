@@ -16,6 +16,19 @@ $(ROM): build/main.o src/snes.cfg tools/fix_checksum.py Makefile
 	ld65 -C src/snes.cfg -Ln build/nolfied.lbl -o $@ build/main.o
 	python3 tools/fix_checksum.py $@
 
+# assembly benchmark ROM for the C trial (experiments/c-trial)
+bench: build/nolfied_bench.sfc experiments/c-trial/bench.sfc
+	python3 tools/bench_score.py
+
+build/nolfied_bench.sfc: src/main.s $(ASSETS) experiments/c-trial/vectors.bin
+	ca65 -g --cpu 65816 -D BENCH --bin-include-dir build --bin-include-dir experiments/c-trial \
+	     -o build/main_bench.o src/main.s
+	ld65 -C src/snes.cfg -Ln build/nolfied_bench.lbl -o $@ build/main_bench.o
+	python3 tools/fix_checksum.py $@
+
+experiments/c-trial/bench.sfc experiments/c-trial/vectors.bin:
+	$(MAKE) -C experiments/c-trial
+
 test: $(ROM)
 	python3 tools/test_flow.py
 	python3 tools/test_perks.py
@@ -29,4 +42,4 @@ run: $(ROM)
 clean:
 	rm -rf build
 
-.PHONY: all run clean test tla
+.PHONY: all run clean test tla bench
