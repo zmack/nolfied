@@ -1,15 +1,26 @@
 #include "score.h"
 #include "hw_math.h"
 
-/* static inline so claim_points() gets it without a second call frame */
 static inline uint16_t fold_mult(const claim *c, const loadout *l)
 {
     /* base: 1, plus one per chain link, plus what this stage has banked */
     mult m = { 1 + c->chain + c->stage_mult, 1 };
 
     const scorer *s = l->scorers;
-    for (unsigned i = l->n_scorers; i; i--, s++)
-        s->hook(c, s->stacks, &m);
+    for (unsigned i = l->n_scorers; i; i--, s++) {
+        uint_fast8_t n = s->stacks;
+        switch (s->id) {
+#define SCORING(id, name, t1, t2, t3, t4, max, rarity, effect) \
+        case PERK_##id: effect; break;
+/* passive perks never reach here, but listing every id keeps the cases dense,
+ * so the compiler emits a jump table instead of a slow search */
+#define PASSIVE(id, name, t1, t2, t3, t4, max, rarity) \
+        case PERK_##id: break;
+#include "perk_defs.h"
+#undef SCORING
+#undef PASSIVE
+        }
+    }
 
     uint32_t total = m.times == 1 ? m.plus : mul16x8(m.plus, m.times);
     return total > MULT_CAP ? MULT_CAP : (uint16_t)total;

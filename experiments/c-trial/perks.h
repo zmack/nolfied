@@ -1,27 +1,22 @@
-/* Perks: the roguelite layer of NOLFIED.
- *
- * A perk is data plus a few optional hooks. Game code never asks "which perk
- * is this?" - it asks every owned perk to contribute, so adding a perk means
- * adding one table entry and (at most) one small function.
- */
+/* Perks: the roguelite layer of NOLFIED. The deck itself is perk_defs.h. */
 #ifndef PERKS_H
 #define PERKS_H
 
 #include <stdint.h>
 
 typedef enum {
-    PERK_GREED, PERK_CHAIN, PERK_TITAN, PERK_SNIPER,
-    PERK_HUNTER, PERK_SWIFT, PERK_AEGIS, PERK_STASIS,
-    PERK_CHRONO, PERK_PHOENIX, PERK_LUCKY, PERK_PRISM,
-    PERK_GLASS, PERK_QUOTA, PERK_JACKPOT, PERK_MIDAS,
+#define SCORING(id, name, t1, t2, t3, t4, max, rarity, effect) PERK_##id,
+#define PASSIVE(id, name, t1, t2, t3, t4, max, rarity)         PERK_##id,
+#include "perk_defs.h"
+#undef SCORING
+#undef PASSIVE
     PERK_COUNT
 } perk_id;
 
 typedef enum { RARITY_COMMON, RARITY_SPECIAL, RARITY_RARE } rarity;
 
-/* Everything a perk may look at when a cut closes. */
-/* Values are 8-bit quantities, but uint_fast8_t (16 bits on the 65816) is
- * what the CPU handles without mode switches. Storage elsewhere stays uint8_t. */
+/* Everything a perk may look at when a cut closes. Values are 8-bit
+ * quantities held in uint_fast8_t (16 bits on the 65816: no mode switches). */
 typedef struct {
     uint16_t      chips;        /* cells claimed by this cut */
     uint_fast8_t  chain;        /* chain links before this claim */
@@ -36,27 +31,20 @@ typedef struct {
     uint_fast8_t times;
 } mult;
 
-/* A hook receives the claim, how many stacks of this perk you own, and the
- * multiplier to add to. */
-typedef void (*mult_hook)(const claim *c, uint_fast8_t stacks, mult *m);
-
-/* Card data: only needed on the draft screen. */
+/* Card data, for the draft screen. */
 typedef struct {
     const char *name;
-    const char *text[4];    /* card text, 4 lines of up to 7 chars */
+    const char *text[4];
     uint8_t     max_stacks;
     rarity      rarity;
 } perk_card;
 
 extern const perk_card perk_cards[PERK_COUNT];
 
-/* Scoring hook per perk (NULL: the perk does not touch the multiplier). */
-extern const mult_hook perk_on_claim[PERK_COUNT];
-
-/* What the player owns. `scorers` lists only owned perks that have a claim
- * hook, so scoring a claim never looks at the rest of the deck. */
+/* What the player owns. `scorers` lists only owned SCORING perks, so scoring
+ * a claim never looks at the rest of the deck. */
 typedef struct {
-    mult_hook    hook;
+    uint_fast8_t id;
     uint_fast8_t stacks;
 } scorer;
 

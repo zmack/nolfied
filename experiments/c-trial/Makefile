@@ -14,7 +14,8 @@ all: bench.sfc
 vectors.h vectors.bin: gen_vectors.py
 	python3 gen_vectors.py vectors.bin vectors.h
 
-bench.o: bench.c vectors.h score.h perks.h
+bench.o: bench.c vectors.h score.h perks.h perk_defs.h
+score.o perks.o: perks.h perk_defs.h hw_math.h
 %.o: %.c
 	$(CC) $(CFLAGS) $< -o $@
 %.o: %.s

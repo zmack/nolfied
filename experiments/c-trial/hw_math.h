@@ -29,36 +29,32 @@
  * unsequenced in C, so two multiplies in one expression may interleave their
  * register writes. */
 
-/* x << 8 for 32-bit values. A plain `<< 8` compiles to an 8-step shift loop;
- * moving bytes is what the hardware is good at. */
-typedef union { uint32_t u; uint8_t b[4]; } bytes32;
+/* Wider products are assembled in 16-bit halves: on the 65816 a 16-bit
+ * `x << 8` is two instructions (xba; and), while a 32-bit shift is a loop. */
 
-static inline uint32_t shl8_32(uint32_t x)
-{
-    bytes32 in = { x }, out;
-    out.b[0] = 0;
-    out.b[1] = in.b[0];
-    out.b[2] = in.b[1];
-    out.b[3] = in.b[2];
-    return out.u;
-}
-
-/* 16 x 8 -> 24 bits (returned as 32) */
+/* 16 x 8 -> 24 bits */
 static inline uint32_t mul16x8(uint16_t a, uint8_t b)
 {
-    uint32_t lo = hw_mul8(a, b);
-    uint32_t hi = hw_mul8(a >> 8, b);
-    return lo + shl8_32(hi);
+    uint16_t lo = hw_mul8(a, b);
+    uint16_t hi = hw_mul8(a >> 8, b);       /* weight 256 */
+    uint16_t sum = lo + (hi << 8);
+    uint16_t top = (hi >> 8) + (sum < lo);  /* carry out of the low half */
+    return ((uint32_t)top << 16) | sum;
 }
 
 /* 16 x 16 -> 32 bits, from four 8x8 products */
 static inline uint32_t mul16x16(uint16_t a, uint16_t b)
 {
-    uint32_t ll = hw_mul8(a, b);
-    uint32_t lh = hw_mul8(a, b >> 8);
-    uint32_t hl = hw_mul8(a >> 8, b);
-    uint32_t hh = hw_mul8(a >> 8, b >> 8);
-    return ll + shl8_32(lh + hl) + (hh << 16);
+    uint16_t ll = hw_mul8(a, b);
+    uint16_t lh = hw_mul8(a, b >> 8);       /* weight 256 */
+    uint16_t hl = hw_mul8(a >> 8, b);       /* weight 256 */
+    uint16_t hh = hw_mul8(a >> 8, b >> 8);  /* weight 65536 */
+
+    uint16_t lo = ll + (lh << 8);
+    uint16_t hi = hh + (lh >> 8) + (lo < ll);
+    uint16_t lo2 = lo + (hl << 8);
+    hi += (hl >> 8) + (lo2 < lo);
+    return ((uint32_t)hi << 16) | lo2;
 }
 
 #endif
