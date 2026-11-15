@@ -65,6 +65,19 @@ build/legacy/nolfied_bench.sfc: legacy/main.s $(ASSETS) experiments/c-trial/vect
 experiments/c-trial/bench.sfc experiments/c-trial/vectors.bin:
 	$(MAKE) -C experiments/c-trial
 
+# profiling build: PROF() stamps compiled in (tools/profile.py)
+PROF_OBJS := $(CSRC:src/%.c=build/prof/%.o) build/core.o build/header.o
+build/prof/%.o: src/%.c $(HEADERS) | $(ASSETS)
+	mkdir -p build/prof
+	$(CC) $(CFLAGS) -D PROFILE -o $@ $<
+build/prof/nolfied.sfc: $(PROF_OBJS) src/nolfied.scm
+	$(LD) src/nolfied.scm $(PROF_OBJS) -o build/prof/nolfied.elf --output-format raw \
+	      --rtattr exit=simplified --stack-size 1024 -l --cross-reference && mv ln65816.lst build/prof/nolfied.lst
+	python3 tools/hirom_fix.py build/prof/nolfied.raw $@
+	python3 tools/calypsi_lbl.py build/prof/nolfied.lst build/prof/nolfied.lbl
+profile: build/prof/nolfied.sfc
+	python3 tools/profile.py
+
 # per-frame CPU use: the C game vs the legacy assembly (tools/perf_compare.py)
 build/legacy/nolfied_perf.sfc: legacy/main.s $(ASSETS)
 	mkdir -p build/legacy
@@ -92,4 +105,4 @@ run: $(ROM)
 clean:
 	rm -rf build
 
-.PHONY: all run clean test tla bench legacy verify-port perf
+.PHONY: all run clean test tla bench legacy verify-port perf profile

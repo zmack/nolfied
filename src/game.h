@@ -85,7 +85,8 @@ enum { E_NONE, E_BOSS, E_SHARD };
 extern uint16_t e_x[MAX_ENEMIES], e_y[MAX_ENEMIES];     /* 8.8 fixed, field px */
 extern int16_t  e_vx[MAX_ENEMIES], e_vy[MAX_ENEMIES];
 extern uint16_t e_spd[MAX_ENEMIES];
-extern uint8_t  e_type[MAX_ENEMIES], e_half[MAX_ENEMIES], e_timer[MAX_ENEMIES];
+extern uint16_t e_half[MAX_ENEMIES];                    /* half box size, px (word: core.s) */
+extern uint8_t  e_type[MAX_ENEMIES], e_timer[MAX_ENEMIES];
 extern uint8_t  i_x[MAX_ITEMS], i_y[MAX_ITEMS], i_on[MAX_ITEMS];   /* capsules */
 extern uint8_t  x_x[MAX_BOOMS], x_y[MAX_BOOMS], x_t[MAX_BOOMS];    /* explosions */
 extern uint8_t  n_items;

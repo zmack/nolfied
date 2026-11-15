@@ -71,6 +71,27 @@ static inline uint32_t mul16x16(uint16_t a, uint16_t b)
     return ((uint32_t)hi << 16) | lo2;
 }
 
+/* current scanline, from the PPU's latched V counter */
+static inline uint16_t scanline(void)
+{
+    (void)REG8(0x2137);             /* latch H/V */
+    (void)REG8(0x213F);             /* reset the lo/hi read toggle */
+    uint16_t lo = REG8(0x213D);
+    uint16_t hi = REG8(0x213D) & 1;
+    return lo | (hi << 8);
+}
+
+/* profiling build only (make profile): PROF(n) stamps the time at point n */
+#ifdef PROFILE
+extern volatile uint8_t nmi_count;
+extern uint16_t prof_line[32];
+extern uint8_t  prof_frame[32];
+extern uint8_t  prof_bench;
+#define PROF(n) (prof_line[n] = scanline(), prof_frame[n] = nmi_count)
+#else
+#define PROF(n) ((void)0)
+#endif
+
 /* 16 / 8 hardware divider: quotient, remainder in RDMPY. 16 cycles. */
 static inline uint16_t hw_div8(uint16_t a, uint8_t b)
 {

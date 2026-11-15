@@ -69,15 +69,22 @@ void snap_player(void)
  * (legacy do_fill after the flood fill; docs/PORTING.md "Closing a cut"). */
 static void close_cut(void)
 {
+    PROF(8);
     uint16_t newly = field_fill(enemy_cell(0));
+    PROF(9);
     claimed += newly;
     uint16_t q = hw_div8(claimed + claimed + claimed, 80);   /* claimed * 3 / 80 */
     pct = q >= 100 ? 99 : (uint8_t)q;
     field_redraw_all();
+    PROF(10);
     check_enclosed();
+    PROF(11);
     score_claim(newly);
+    PROF(12);
     snap_player();
+    PROF(13);
     draw_hud();
+    PROF(14);
     if (pct >= goal) {
         goto_state(ST_CLEAR);
         return;

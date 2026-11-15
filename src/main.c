@@ -9,15 +9,11 @@ uint16_t joy, joy_prev, joy_new;
 uint16_t loops;
 uint16_t busy_line;      /* scanline the last frame's work finished on (perf) */
 
-/* current scanline from the PPU's latched V counter */
-static uint16_t scanline(void)
-{
-    (void)REG8(0x2137);             /* latch H/V */
-    (void)REG8(0x213F);             /* reset the lo/hi read toggle */
-    uint16_t lo = REG8(0x213D);
-    uint16_t hi = REG8(0x213D) & 1;
-    return lo | (hi << 8);
-}
+#ifdef PROFILE
+uint16_t prof_line[32];
+uint8_t  prof_frame[32];
+uint8_t  prof_bench;
+#endif
 
 static void read_joy(void)
 {
@@ -39,13 +35,20 @@ int main(void)
     goto_state(ST_TITLE);
 
     for (;;) {
+        PROF(0);
         loops++;
         read_joy();
+        PROF(1);
         juice_update();
+        PROF(2);
         sfx_update();
+        PROF(3);
         run_state();
+        PROF(4);
         fsm_check();
+        PROF(5);
         build_oam(state);
+        PROF(6);
         busy_line = scanline();
         /* Publish the frame, then sleep until the NMI has uploaded it.
          * Waiting on frame_ready (not nmi_count) cannot miss an NMI that

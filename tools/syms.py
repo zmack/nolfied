@@ -5,7 +5,7 @@
 
 Reads build/nolfied.lbl (written by tools/calypsi_lbl.py at link time), so
 tests refer to game variables by their C names instead of raw addresses.
-Array element sizes: e_x e_y e_vx e_vy e_spd are words; e_type e_half
+Array element sizes: e_x e_y e_vx e_vy e_spd e_half are words; e_type
 e_timer i_x i_y i_on x_x x_y x_t are bytes. run_perks: stacks[16] at +0,
 total at +16 (see src/perks.h).
 """

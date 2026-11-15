@@ -5,7 +5,8 @@
 uint16_t e_x[MAX_ENEMIES], e_y[MAX_ENEMIES];
 int16_t  e_vx[MAX_ENEMIES], e_vy[MAX_ENEMIES];
 uint16_t e_spd[MAX_ENEMIES];
-uint8_t  e_type[MAX_ENEMIES], e_half[MAX_ENEMIES], e_timer[MAX_ENEMIES];
+uint16_t e_half[MAX_ENEMIES];
+uint8_t  e_type[MAX_ENEMIES], e_timer[MAX_ENEMIES];
 uint8_t  i_x[MAX_ITEMS], i_y[MAX_ITEMS], i_on[MAX_ITEMS];
 uint8_t  x_x[MAX_BOOMS], x_y[MAX_BOOMS], x_t[MAX_BOOMS];
 uint8_t  n_items;
@@ -65,7 +66,8 @@ void enemies_init(void)
         e_x[s] = e_y[s] = 0;
         e_vx[s] = e_vy[s] = 0;
         e_spd[s] = 0;
-        e_type[s] = e_half[s] = e_timer[s] = 0;
+        e_type[s] = e_timer[s] = 0;
+        e_half[s] = 0;
     }
     for (uint8_t i = 0; i < MAX_ITEMS; i++)
         i_x[i] = i_y[i] = i_on[i] = 0;
@@ -113,51 +115,23 @@ void enemies_init(void)
 /* ---- per frame -------------------------------------------------------------------- */
 
 /* move one axis at a time; a claimed or edge cell in the way reverses it */
-static void enemy_move(uint8_t s)
+/* enemy_move() is in the core (core.h): one step, bouncing off claimed area */
+
+static inline uint_fast8_t abs_diff(uint_fast8_t a, uint_fast8_t b)
 {
-    uint8_t half = e_half[s];
-
-    uint16_t nx = e_x[s] + e_vx[s];
-    uint8_t edge = e_vx[s] < 0 ? PX(nx) - half : PX(nx) + half;
-    bx0 = bx1 = edge;
-    by0 = PX(e_y[s]) - half;
-    by1 = PX(e_y[s]) + half;
-    if (box_scan() & (F_CLAIM | F_EDGE))
-        e_vx[s] = -e_vx[s];
-    else
-        e_x[s] = nx;
-
-    uint16_t ny = e_y[s] + e_vy[s];
-    edge = e_vy[s] < 0 ? PX(ny) - half : PX(ny) + half;
-    by0 = by1 = edge;
-    bx0 = PX(e_x[s]) - half;
-    bx1 = PX(e_x[s]) + half;
-    if (box_scan() & (F_CLAIM | F_EDGE))
-        e_vy[s] = -e_vy[s];
-    else
-        e_y[s] = ny;
+    return a > b ? a - b : b - a;
 }
 
-static uint8_t abs_diff(uint8_t a, uint8_t b)
+static void enemy_collide(uint_fast8_t s)
 {
-    return a >= b ? a - b : b - a;
-}
-
-/* touching the trail, or the player while drawing, is a hit */
-static void enemy_collide(uint8_t s)
-{
-    uint8_t half = e_half[s];
-    uint8_t cx = PX(e_x[s]), cy = PX(e_y[s]);
-
-    bx0 = cx - half;
-    bx1 = cx + half;
-    by0 = cy - half;
-    by1 = cy + half;
-    if (box_scan() & F_TRAIL)
+    /* touching the trail anywhere under its box kills the player */
+    if (enemy_box_flags(s) & F_TRAIL)
         player_hit();
+    uint_fast8_t half = e_half[s];
+    uint_fast8_t cx = PX(e_x[s]), cy = PX(e_y[s]);
     if (pmode == PM_EDGE)
         return;
-    uint8_t reach = half + 3;
+    uint_fast8_t reach = half + 3;
     if (abs_diff(cx, ppx) < reach && abs_diff(cy, ppy) < reach)
         player_hit();
 }

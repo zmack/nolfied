@@ -17,9 +17,9 @@ extern uint8_t fl_r, fl_g, fl_b;         /* colour-math flash, 0..31 per channel
 extern uint8_t oam_buf[512];             /* sprite table shadow ...                */
 extern uint8_t oam_hi[32];               /* ... and its high table                 */
 
-/* tilemap shadows and the trail list live in high WRAM ($7E2000+) */
+/* BG3 (text) shadow in bank 0, the BG1 shadow and trail list in high WRAM */
+extern uint16_t bg3map[1024];
 extern __far uint16_t bg1map[1024];
-extern __far uint16_t bg3map[1024];
 extern __far uint16_t trail[3072];
 
 /* ---- the field ------------------------------------------------------------
@@ -46,6 +46,12 @@ uint16_t box_scan(void);
 #define F_CLAIM 2
 #define F_EDGE  4
 #define F_TRAIL 8
+
+/* enemies: one movement step (bouncing off claimed area), and the cell flags
+ * under an enemy's box. The per-frame enemy kernels (legacy enemy_move and
+ * the box half of enemy_collide, byte-for-byte: tools/verify_port.py). */
+void     enemy_move(uint16_t slot);
+uint16_t enemy_box_flags(uint16_t slot);
 
 /* ---- PPU uploads (forced blank only, NMI off) ------------------------------ */
 void core_boot_ppu(void);          /* reset all PPU registers                  */

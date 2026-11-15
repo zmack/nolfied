@@ -67,6 +67,9 @@ C_OPEN          .equ 0
 C_CLAIM         .equ 1
 C_EDGE          .equ 2
 C_TRAIL         .equ 3
+F_CLAIM         .equ 2
+F_EDGE          .equ 4
+F_TRAIL         .equ 8
 
 ; ---- frame block: shared by the main loop (C) and the NMI ------------------
               .section ztiny,bss
@@ -101,6 +104,8 @@ newly:        .space  2
 apu_cnt:      .space  1
 apu_reg:      .space  1
 apu_val:      .space  1
+enx:          .space  2
+eslot:        .space  2
 
               .section znear,bss
               .public scr_h, scr_v, fl_r, fl_g, fl_b, apu_dead, oam_buf, oam_hi
@@ -114,18 +119,22 @@ apu_dead:     .space  1
 oam_buf:      .space  512
 oam_hi:       .space  32
 ; field grid: 48 rows of 64 cells (60 used), two padding rows above and below
+; BG3 (text) tilemap shadow: bank 0, so C writes it with plain absolute
+; stores (from high WRAM every character cost a 24-bit indexed store)
+              .public bg3map
+bg3map:       .space  2048
 grid_mem:     .space  0x80
 grid:         .space  48*64
               .space  0x80
 
               .section zfar,bss
-              .public bg1map, bg3map, trail
+              .public bg1map, trail
 bg1map:       .space  2048          ; BG1 tilemap shadow
-bg3map:       .space  2048          ; BG3 tilemap shadow
 trail:        .space  6144          ; trail cell list (words)
 flood:        .space  6144          ; flood fill stack (words)
 
               .section code
+              .extern e_x, e_y, e_vx, e_vy, e_half
 nmi:
               rep     #0x30
               pha
@@ -1095,13 +1104,124 @@ field_fill_k_en:inx
               bne     field_fill_k_e
               rts
 
+
+; =============================================================================
+;  Enemy kernels (legacy enemy_move, and the box half of enemy_collide)
+;  X = slot * 2 (the enemy arrays e_x, e_y, e_vx, e_vy, e_half are words)
+; =============================================================================
+enemy_move_k:
+               ; ---- horizontal
+              rep     #0x20
+              lda     e_x,x
+              clc
+              adc     e_vx,x
+              sta     dp:.tiny (enx)
+              sep     #0x20
+              lda     e_vx+1,x
+              bmi     enemy_move_k_lft
+              lda     dp:.tiny (enx+1)
+              clc
+              adc     e_half,x
+              bra     enemy_move_k_sx
+enemy_move_k_lft:lda     dp:.tiny (enx+1)
+              sec
+              sbc     e_half,x
+enemy_move_k_sx:sta     dp:.tiny (bx0)
+              sta     dp:.tiny (bx1)
+              lda     e_y+1,x
+              sec
+              sbc     e_half,x
+              sta     dp:.tiny (by0)
+              lda     e_y+1,x
+              clc
+              adc     e_half,x
+              sta     dp:.tiny (by1)
+              jsr     box_scan_k
+              ldx     dp:.tiny (eslot)
+              and     #(F_CLAIM|F_EDGE)
+              beq     enemy_move_k_xok
+              rep     #0x20
+              lda     ##0x0000
+              sec
+              sbc     e_vx,x
+              sta     e_vx,x
+              sep     #0x20
+              bra     enemy_move_k_yax
+enemy_move_k_xok:rep     #0x20
+              lda     dp:.tiny (enx)
+              sta     e_x,x
+              sep     #0x20
+enemy_move_k_yax: ; ---- vertical
+              rep     #0x20
+              lda     e_y,x
+              clc
+              adc     e_vy,x
+              sta     dp:.tiny (enx)
+              sep     #0x20
+              lda     e_vy+1,x
+              bmi     enemy_move_k_up
+              lda     dp:.tiny (enx+1)
+              clc
+              adc     e_half,x
+              bra     enemy_move_k_sy
+enemy_move_k_up:lda     dp:.tiny (enx+1)
+              sec
+              sbc     e_half,x
+enemy_move_k_sy:sta     dp:.tiny (by0)
+              sta     dp:.tiny (by1)
+              lda     e_x+1,x
+              sec
+              sbc     e_half,x
+              sta     dp:.tiny (bx0)
+              lda     e_x+1,x
+              clc
+              adc     e_half,x
+              sta     dp:.tiny (bx1)
+              jsr     box_scan_k
+              ldx     dp:.tiny (eslot)
+              and     #(F_CLAIM|F_EDGE)
+              beq     enemy_move_k_yok
+              rep     #0x20
+              lda     ##0x0000
+              sec
+              sbc     e_vy,x
+              sta     e_vy,x
+              sep     #0x20
+              rts
+enemy_move_k_yok:rep     #0x20
+              lda     dp:.tiny (enx)
+              sta     e_y,x
+              sep     #0x20
+              rts
+
+
+enemy_box_k:
+              lda     e_x+1,x
+              sec
+              sbc     e_half,x
+              sta     dp:.tiny (bx0)
+              lda     e_x+1,x
+              clc
+              adc     e_half,x
+              sta     dp:.tiny (bx1)
+              lda     e_y+1,x
+              sec
+              sbc     e_half,x
+              sta     dp:.tiny (by0)
+              lda     e_y+1,x
+              clc
+              adc     e_half,x
+              sta     dp:.tiny (by1)
+              jsr     box_scan_k
+              rts
+
 ; =============================================================================
 ;  C interface (16-bit in, 16-bit out; argument and result in A)
 ; =============================================================================
               .public core_boot_ppu, load_static, load_picture, upload_bg1
               .public upload_bg3, upload_oam, field_init, field_fill
               .public field_redraw_all, field_update_cell, box_scan
-              .public spc_init, apu_write
+              .public spc_init, apu_write, enemy_move, enemy_box_flags
 
 ; legacy kernels keep their names with a _k suffix where C sees a wrapper
 core_boot_ppu: sep    #0x20
@@ -1163,6 +1283,25 @@ field_update_cell: tax
 ; uint16_t box_scan(void): OR of (1 << state) over the box bx0..bx1, by0..by1
 box_scan:     sep     #0x20
               jsr     box_scan_k
+              rep     #0x30
+              and     ##0x00ff
+              rts
+
+; void enemy_move(uint16_t slot): one step, bouncing off claimed area
+enemy_move:   asl     a
+              tax
+              stx     dp:.tiny (eslot)
+              sep     #0x20
+              jsr     enemy_move_k
+              rep     #0x30
+              rts
+
+; uint16_t enemy_box_flags(uint16_t slot): cell flags under the enemy's box
+enemy_box_flags: asl  a
+              tax
+              stx     dp:.tiny (eslot)
+              sep     #0x20
+              jsr     enemy_box_k
               rep     #0x30
               and     ##0x00ff
               rts

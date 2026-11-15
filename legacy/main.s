@@ -275,6 +275,27 @@ B_O       = $06F2               ; word: output offset (i * 16)
 .endmacro
 .endif
 
+
+.ifdef PERF
+.macro PSTAMP n
+        php
+        sep #$20
+        lda $2137
+        lda $213F
+        lda $213D
+        sta $06C0 + 3*n
+        lda $213D
+        and #$01
+        sta $06C1 + 3*n
+        lda nmi_count
+        sta $06C2 + 3*n
+        plp
+.endmacro
+.else
+.macro PSTAMP n
+.endmacro
+.endif
+
 ; =============================================================================
 .segment "ZEROPAGE"
 nmi_count:   .res 1
@@ -424,12 +445,16 @@ sfx_ch:      .res 2
         jsr goto_state
 
 main_loop:
+        PSTAMP 0
         A16
         inc LOOPS
         A8
         jsr read_joy
+        PSTAMP 1
         jsr juice_update
+        PSTAMP 2
         jsr sfx_update
+        PSTAMP 3
         A16
         lda state
         and #$00FF
@@ -437,9 +462,12 @@ main_loop:
         tax
         A8
         jsr (state_tab,x)
+        PSTAMP 4
         jsr fsm_check
+        PSTAMP 5
         lda state
         jsr build_oam
+        PSTAMP 6
 .ifdef PERF
         lda $2137               ; perf build: scanline the frame's work ended on
         lda $213F
@@ -3041,14 +3069,24 @@ dir_didx: .word $FFC0, 64, $FFFF, 1     ; up, down, left, right
         beq :+
         lda #ST_PAUSE
         jmp goto_state
-:       jsr player_update
+:       PSTAMP 16
+        jsr player_update
         jsr calc_ppos
+        PSTAMP 17
         lda state
         cmp #ST_PLAY
         bne @r
         jsr enemies_update
+        PSTAMP 18
         jsr timers_update
+.ifdef PERF
+@r:     PSTAMP 19
+        jsr booms_update
+        PSTAMP 20
+        rts
+.else
 @r:     jmp booms_update
+.endif
 .endproc
 
 .proc st_dying

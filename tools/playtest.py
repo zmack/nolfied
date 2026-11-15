@@ -54,7 +54,7 @@ for i in range(N):
     if r[SYM.apu_dead]:
         print('APU DEAD', i); break
     nmi=r[lab['nmi_count']]
-    if nmi==prev_nmi: print('HANG?', i); break
+    if nmi==prev_nmi and r[lab['state']]!=8: print('HANG?', i); break
     prev_nmi=nmi
     if e.frames % 3000 < n: 
         print(f'frame {e.frames} state {r[lab["state"]]} stage {r[lab["stage"]]} pct {r[lab["pct"]]} lives {r[lab["lives"]]}')

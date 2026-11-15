@@ -252,13 +252,27 @@ void st_play(void)
         goto_state(ST_PAUSE);
         return;
     }
+    PROF(16);
     player_update();
     calc_ppos();
+    PROF(17);
     if (state == ST_PLAY) {
         enemies_update();
+        PROF(18);
         timers_update();
     }
+    PROF(19);
     booms_update();
+    PROF(20);
+#ifdef PROFILE
+    if (prof_bench) {               /* tools/profile.py: time draw_hud alone */
+        PROF(21);
+        (void)enemy_box_flags(0);   /* the boss box */
+        PROF(22);
+        enemies_update();
+        PROF(23);
+    }
+#endif
 }
 
 void enter_pause(void)

@@ -20,6 +20,9 @@ PAIRS = {  # legacy proc -> label in core.s
     "redraw_all": "redraw_all", "box_scan": "box_scan_k", "spc_init": "spc_init_k",
     "apu_write": "apu_write_k",
 }
+PAIRS["enemy_move"] = "enemy_move_k"
+PAIRS["enemy_collide"] = "enemy_box_k"     # its first half: the box and box_scan
+PREFIX = {"enemy_collide"}                  # kernel returns where legacy goes on
 
 
 def legacy_bytes(rom_path, lbl_path):
@@ -98,6 +101,9 @@ if "field_fill_k" in new:
 bad = 0
 for lp, np_ in PAIRS.items():
     a, b = norm(old.get(lp, [])), new.get(np_, [])[:len(old.get(lp, []))]
+    if lp in PREFIX:
+        rts = b.index("60") if "60" in b else len(b)
+        a, b = a[:rts], b[:rts]
     diff = next((i for i in range(len(a)) if i >= len(b) or not (a[i] == b[i] or "??" in (a[i], b[i]))), None)
     bad += diff is not None
     where = "" if diff is None else f"  first difference at byte {diff}: ca65 {a[max(0,diff-3):diff+3]} vs calypsi {b[max(0,diff-3):diff+3]}"

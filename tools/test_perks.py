@@ -35,7 +35,8 @@ PERKS, OFFERS, CURSOR = S.run_perks, S.offers, S.cursor
 P_TOTAL, CHAIN, KILLS, AEGIS_C = S.run_perks + 16, S.chain, S.kills, S.aegis_left
 GOAL, JACKMULT, MULT = S.goal, S.stage_mult, S.last_mult
 E_X, E_Y, E_VX, E_VY, E_SPD = S.e_x, S.e_y, S.e_vx, S.e_vy, S.e_spd   # words: slot*2
-E_TYPE, E_HALF, E_TIMER = S.e_type, S.e_half, S.e_timer              # bytes: slot
+E_TYPE, E_TIMER = S.e_type, S.e_timer                                 # bytes: slot
+E_HALF = S.e_half                                                     # words: slot*2
 I_X, I_Y, I_ON = S.i_x, S.i_y, S.i_on                                 # bytes: slot
 GRID = S.grid
 

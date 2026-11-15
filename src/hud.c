@@ -46,36 +46,30 @@ uint16_t put_dec2(uint16_t at, uint8_t v, uint8_t attr)
     return put_digit(at, ones, attr);
 }
 
-/* four decimal digits of v (0..9999), least significant first */
-static void split4(uint16_t v, uint8_t *d)
-{
-    uint16_t q = hw_div8(v, 10);
-    d[0] = RDMPY;
-    uint16_t q2 = hw_div8(q, 10);
-    d[1] = RDMPY;
-    d[3] = hw_div8(q2, 10);
-    d[2] = RDMPY;
-}
+/* All ten decimal digits of v, least significant first.
+ *
+ * Long division by 10, one byte at a time, on the 16/8 hardware divider:
+ * each partial dividend is (remainder << 8) | byte < 2560, so every step is a
+ * single 16-cycle hardware divide. (C's `v / 10000` would call Calypsi's
+ * software 32-bit division, which made draw_hud cost up to 17 frames.) */
+typedef union { uint32_t u; uint8_t b[4]; } bytes32;    /* b[3] is the top byte */
 
-/* all ten decimal digits of v, least significant first */
 static void digits(uint32_t v, uint8_t *d)
 {
-    uint16_t r0, r1, top;
-    if (v < 0x10000UL) {
-        uint16_t a = (uint16_t)v;
-        r1 = a / 10000;
-        r0 = a % 10000;
-        top = 0;
-    } else {
-        uint32_t q = v / 10000;
-        r0 = (uint16_t)(v - q * 10000);
-        top = (uint16_t)(q / 10000);
-        r1 = (uint16_t)(q - (uint32_t)top * 10000);
+    bytes32 n = { v };
+    uint_fast8_t top = 3;                  /* highest byte that is not 0 */
+    while (top && n.b[top] == 0)
+        top--;
+    for (uint_fast8_t i = 0; i < 10; i++) {
+        uint16_t rem = 0;
+        for (uint_fast8_t k = top + 1; k--; ) {
+            n.b[k] = (uint8_t)hw_div8((rem << 8) | n.b[k], 10);
+            rem = RDMPY;
+        }
+        d[i] = (uint8_t)rem;
+        while (top && n.b[top] == 0)
+            top--;
     }
-    split4(r0, d);
-    split4(r1, d + 4);
-    d[8] = top % 10;
-    d[9] = top / 10;
 }
 
 uint16_t put_num(uint16_t at, uint32_t v, uint8_t attr)
@@ -119,12 +113,14 @@ void clear_bg3(void)
 
 void draw_hud(void)
 {
+    PROF(24);
     print(MAP(1, 1), s_score, ATTR_W);
     print(MAP(1, 19), s_stage, ATTR_W);
     print(MAP(2, 1), s_area, ATTR_W);
     print(MAP(2, 19), s_chain, ATTR_W);
-
+    PROF(25);
     put_score(MAP(1, 7), score, ATTR_Y);
+    PROF(26);
     put_dec2(MAP(1, 25), stage, ATTR_Y);
     put_dec2(MAP(2, 6), pct, ATTR_Y);
     put_dec2(MAP(2, 10), (uint8_t)goal, ATTR_Y);
@@ -132,8 +128,9 @@ void draw_hud(void)
     bg3map[at++] = cell(ATTR_P, TILE_HEART);
     put_digit(at, lives, ATTR_Y);
     put_dec2(MAP(2, 25), chain, ATTR_O);
-
+    PROF(27);
     draw_owned(0);
+    PROF(28);
     chain_bar = CHAIN_BAR_REDRAW;
     draw_chain_bar();
     bg3_dirty = 1;
