@@ -43,7 +43,10 @@ def bcd(b):
     return int(b[::-1].hex())
 
 
-def run(rom, ram_base, done_addr, rec_len, parse):
+CAL = {}
+
+
+def run(rom, ram_base, done_addr, rec_len, parse, calib):
     e = Emu(rom)
     for _ in range(120):
         e.run(5)
@@ -52,6 +55,7 @@ def run(rom, ram_base, done_addr, rec_len, parse):
     else:
         raise SystemExit(f"{rom}: benchmark did not finish")
     m = e.wram()
+    CAL[rom] = calib(m)
     return [parse(m[ram_base + i * rec_len: ram_base + (i + 1) * rec_len]) for i in range(N)]
 
 
@@ -78,18 +82,36 @@ def parse_asm(r):
     return mult, pts, elapsed(t0, tm), elapsed(t0, t1)
 
 
-c_res = run(os.path.join(TRIAL, "bench.sfc"), addr["results"], addr["bench_done"], 16, parse_c)
-a_res = run(os.path.join(ROOT, "build", "nolfied_bench.sfc"), 0x8000, 0x8FFF, 24, parse_asm)
+def calib_c(m):
+    return parse_c(m[addr["calib"]:addr["calib"] + 16])[2]
+
+
+def calib_asm(m):
+    return parse_asm(m[0x8F00:0x8F00 + 24])[2]
+
+
+c_rom = os.path.join(TRIAL, "bench.sfc")
+a_rom = os.path.join(ROOT, "build", "nolfied_bench.sfc")
+c_res = run(c_rom, addr["results"], addr["bench_done"], 16, parse_c, calib_c)
+a_res = run(a_rom, 0x8000, 0x8FFF, 24, parse_asm, calib_asm)
+# subtract each harness's own empty-window cost
+c_res = [(m, p, t - CAL[c_rom]) for m, p, t in c_res]
+a_res = [(m, p, t - CAL[a_rom], u - CAL[a_rom]) for m, p, t, u in a_res]
+print(f"harness overhead subtracted: C {CAL[c_rom] * 1e6 / MASTER_HZ:.1f} us, "
+      f"asm {CAL[a_rom] * 1e6 / MASTER_HZ:.1f} us")
 
 fails = 0
 print(f"{'#':>2} {'chips':>5} {'mult':>4} {'points':>8} | {'C us':>7} {'asm math us':>11} {'asm total us':>12}  check")
 us = lambda mc: mc * 1e6 / MASTER_HZ
+QUIET = "--quiet" in sys.argv
 for i, v in enumerate(vectors):
     chips, chain, kills, jack, owned, _pad, *stacks = v
     want = model(chips, chain, kills, jack, owned, stacks)
     c, a = c_res[i], a_res[i]
     ok = (c[0], c[1]) == want and (a[0], a[1]) == want
     fails += not ok
+    if QUIET and ok:
+        continue
     print(f"{i:2} {chips:5} {want[0]:4} {want[1]:8} | {us(c[2]):7.1f} {us(a[2]):11.1f} {us(a[3]):12.1f}  "
           f"{'ok' if ok else f'MISMATCH c={c[:2]} asm={a[:2]}'}")
 
@@ -98,5 +120,9 @@ am = sum(us(r[2]) for r in a_res) / N
 at = sum(us(r[3]) for r in a_res) / N
 print(f"\nmean per claim: C {ct:.1f} us, asm arithmetic {am:.1f} us (asm incl. popup/juice {at:.1f} us)")
 print(f"one frame is {1e6 / 60.0988:.0f} us; a claim happens at most once per cut")
+ratios = sorted(c_res[i][2] / a_res[i][2] for i in range(N))
+slower = sum(r > 1.0 for r in ratios)
+print(f"C / asm-arithmetic time: best {ratios[0]:.2f}x, median {ratios[N // 2]:.2f}x, "
+      f"worst {ratios[-1]:.2f}x; C slower in {slower}/{N} scenarios")
 print(f"\n{'OK' if not fails else 'FAILED'}: {N - fails}/{N} scenarios match the model in both ROMs")
 sys.exit(1 if fails else 0)

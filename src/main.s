@@ -255,6 +255,8 @@ B_I       = $06F0               ; word: vector offset (i * 24)
 B_O       = $06F2               ; word: output offset (i * 16)
 
 .macro STAMP off
+:       lda nmi_count           ; frame number first...
+        sta f:BENCH_OUT+off+4,x
         lda $2137               ; latch H/V
         lda $213F               ; reset the lo/hi toggle
         lda $213C
@@ -267,8 +269,9 @@ B_O       = $06F2               ; word: output offset (i * 16)
         lda $213D
         and #$01
         sta f:BENCH_OUT+off+3,x
-        lda nmi_count
-        sta f:BENCH_OUT+off+4,x
+        lda nmi_count           ; ...and re-sample if vblank started in between
+        cmp f:BENCH_OUT+off+4,x
+        bne :-
 .endmacro
 .endif
 
@@ -4657,6 +4660,9 @@ pm_allow:
         .i16
         lda #$80
         sta NMITIMEN            ; NMI only counts frames (frame_ready stays 0)
+        ldx #$0F00              ; calibration: an empty timed window
+        STAMP 6
+        STAMP 16
         ldx #$0000
         stx B_I
         stx B_O

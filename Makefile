@@ -17,7 +17,8 @@ $(ROM): build/main.o src/snes.cfg tools/fix_checksum.py Makefile
 	python3 tools/fix_checksum.py $@
 
 # assembly benchmark ROM for the C trial (experiments/c-trial)
-bench: build/nolfied_bench.sfc experiments/c-trial/bench.sfc
+bench: build/nolfied_bench.sfc
+	$(MAKE) -C experiments/c-trial
 	python3 tools/bench_score.py
 
 build/nolfied_bench.sfc: src/main.s $(ASSETS) experiments/c-trial/vectors.bin
