@@ -1045,6 +1045,7 @@ field_fill_k_n3:lda     grid+64,y
 field_fill_k_fdone:sep     #0x20
 field_fill_k_pass: ; convert: open (unreached) & trail -> claimed, reached -> open
               sep     #0x20
+              ldx     ##0x0000
               stx     dp:.tiny (newly)
 field_fill_k_p:lda     grid,x
               beq     field_fill_k_zero
@@ -1065,6 +1066,7 @@ field_fill_k_pn:inx
               cpx     ##(FIELD_H*64)
               bne     field_fill_k_p
                ; recompute edges: claimed cell touching an open cell (8-way)
+              ldx     ##0x0000
 field_fill_k_e:lda     grid,x
               beq     field_fill_k_en
               lda     grid-65,x

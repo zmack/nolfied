@@ -12,7 +12,7 @@ for name, addr in re.findall(r"^\s+([A-Za-z_]\w*) = ([0-9A-Fa-f]+)$", text, re.M
 # section bounds the tests need (e.g. the C stack, for overflow checks)
 for sec in ("stack",):
     m = re.search(rf"^{sec}\s+.*?placed at address ([0-9A-Fa-f]+)-([0-9A-Fa-f]+)", text, re.M) or \
-        re.search(rf"section '{sec}'\s+placed at address ([0-9A-Fa-f]+)-([0-9A-Fa-f]+)", text, re.M)
+        re.search(rf"[Ss]ection '{sec}'\s+placed at address ([0-9A-Fa-f]+)-([0-9A-Fa-f]+)", text, re.M)
     if m:
         syms[f"__{sec}_start"] = int(m.group(1), 16)
         syms[f"__{sec}_end"] = int(m.group(2), 16)

@@ -25,7 +25,7 @@ build/icons.bin: tools/gen_icons.py
 # no --target=SNES: Calypsi 5.18 miscompiles hardware multiplies with it
 # (experiments/c-trial/README.md); hw.h drives the multiplier by hand instead.
 build/%.o: src/%.c $(HEADERS) | $(ASSETS)
-	$(CC) $(CFLAGS) -l --list-file build/$*.lst -o $@ $<
+	$(CC) $(CFLAGS) -l -o $@ $< && mv $*.lst build/   # cc65816 lists into the cwd
 
 build/core.o: src/core.s $(ASSETS)
 	cd build && $(AS) -l --list-file core.lst ../src/core.s -o core.o
@@ -36,7 +36,8 @@ build/header.o: src/header.s
 $(ROM): $(OBJS) src/nolfied.scm tools/hirom_fix.py tools/calypsi_lbl.py
 	$(LD) src/nolfied.scm $(OBJS) -o build/nolfied.elf --output-format raw \
 	      --rtattr exit=simplified --stack-size 1024 \
-	      -l --list-file build/nolfied.lst --cross-reference
+	      -l --cross-reference && mv ln65816.lst build/nolfied.lst
+	python3 tools/check_modes.py build/nolfied.lst $(CSRC:src/%.c=build/%.lst)
 	python3 tools/hirom_fix.py build/nolfied.raw $@
 	python3 tools/calypsi_lbl.py build/nolfied.lst build/nolfied.lbl
 

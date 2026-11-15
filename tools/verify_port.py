@@ -66,7 +66,35 @@ _legacy_src = open("legacy/main.s").read()
 ALL_PROCS = set(re.findall(r"^\.proc (\w+)", _legacy_src, re.M)) | \
     set(re.findall(r"^([A-Za-z_]\w*):", re.sub(r"\.proc.*?\.endproc", "", _legacy_src, flags=re.S), re.M))
 old = legacy_bytes("build/legacy/nolfied.sfc", "build/legacy/nolfied.lbl")
+
+# field_fill_k is legacy do_fill's flood/claim/edge half: the same bytes,
+# minus the boss lookup "ldx #0 / jsr enemy_cell" (6 bytes after
+# "stz noseed"; the seed now arrives in Y), ending where legacy goes on to
+# compute the percentage (the kernel returns there instead).
+def _legacy_do_fill():
+    rom = open("build/legacy/nolfied.sfc", "rb").read()
+    lab = {}
+    for line in open("build/legacy/nolfied.lbl"):
+        _, adr, name = line.split()
+        lab[name[1:]] = int(adr, 16)
+    a = lab["do_fill"]
+    b = bytes(rom[a - 0x8000:a - 0x8000 + 400])
+    body = b[:2] + b[8:]
+    return [f"{x:02X}" for x in body]
+
+
+PAIRS["do_fill"] = "field_fill_k"
+_ff = new_bytes = None
 new = calypsi_bytes("build/core.lst")
+if "field_fill_k" in new:
+    # the kernel must equal legacy up to the point where legacy goes on with
+    # "rep #$20" (the percentage code) and the kernel returns ("rts") instead
+    k, legacy = new["field_fill_k"], _legacy_do_fill()
+    d = next(i for i in range(len(k)) if k[i] != legacy[i] and "??" not in (k[i], legacy[i]))
+    if k[d] == "60" and legacy[d:d + 2] == ["C2", "20"]:
+        new["field_fill_k"], old["do_fill"] = k[:d], legacy[:d]
+    else:
+        new["field_fill_k"], old["do_fill"] = k[:d + 1], legacy[:d + 1]
 bad = 0
 for lp, np_ in PAIRS.items():
     a, b = norm(old.get(lp, [])), new.get(np_, [])[:len(old.get(lp, []))]

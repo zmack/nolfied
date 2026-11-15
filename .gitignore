@@ -3,3 +3,4 @@ __pycache__/
 *.pyc
 spec/*_TTrace_*
 spec/states/
+*.lst
