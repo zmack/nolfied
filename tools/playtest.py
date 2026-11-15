@@ -5,7 +5,7 @@ Usage: python3 tools/playtest.py OUTDIR SEED STEPS
 """
 import sys, random; sys.path.insert(0,'tools')
 from retro import Emu
-from syms import S
+from syms import S as SYM
 lab={}
 for l in open('build/nolfied.lbl'):
     _,a,n=l.split(); lab[n[1:]]=int(a,16)
@@ -36,7 +36,7 @@ for i in range(N):
     if (p&63)>=60 or (p>>6)>=48 or r[lab['pmode']]>2 or r[lab['state']]>8:
         print('BAD', i, p&63, p>>6, r[lab['pmode']], r[lab['state']]); e.shot(S+f'/bad{seed}.png'); break
     if r[lab['state']]==2 and r[lab['pmode']]==0 and (r[lab['trail_len']]|r[lab['trail_len']+1])==0:
-        g=[[r[S.grid+y*64+x] for x in range(60)] for y in range(48)]
+        g=[[r[SYM.grid+y*64+x] for x in range(60)] for y in range(48)]
         bad=None
         for y in range(48):
             for x in range(60):
@@ -46,12 +46,12 @@ for i in range(N):
                 if v==2 and 0 not in nb: bad=('orphan edge',x,y)
                 if v>3: bad=('temp state',x,y)
                 if v==3: bad=('trail left over',x,y)
-        bx=r[S.e_x+1]>>2; by=r[S.e_y+1]>>2
-        if g[by][bx] not in (0,3) and r[S.e_type]: bad=('boss in claimed',bx,by)
+        bx=r[SYM.e_x+1]>>2; by=r[SYM.e_y+1]>>2
+        if g[by][bx] not in (0,3) and r[SYM.e_type]: bad=('boss in claimed',bx,by)
         if bad: print('INVARIANT',i,bad); e.shot(S+f'/inv{seed}.png'); break
-    if r[S.fsm_errs]:
-        print('FSM FAULT', i, 'kind', r[S.fsm_kind], 'from', r[S.fsm_from], 'to', r[S.fsm_to]); e.shot(S+f'/fsm{seed}.png'); break
-    if r[S.apu_dead]:
+    if r[SYM.fsm_errs]:
+        print('FSM FAULT', i, 'kind', r[SYM.fsm_kind], 'from', r[SYM.fsm_from], 'to', r[SYM.fsm_to]); e.shot(S+f'/fsm{seed}.png'); break
+    if r[SYM.apu_dead]:
         print('APU DEAD', i); break
     nmi=r[lab['nmi_count']]
     if nmi==prev_nmi: print('HANG?', i); break

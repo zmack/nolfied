@@ -164,7 +164,9 @@ def check(m):
     deep = next((a for a in range(STACK_LO, STACK_LO + STACK_GUARD) if m[a]), None)
     if deep is not None:
         fail(f"stack grew down to ${deep:04X}")
-    # liveness
+    # liveness (not while booting: NMI comes on once the title screen is up)
+    if st == 8:
+        return
     nmi, loops = m[lab["nmi_count"]], w16(m, LOOPS)
     stuck_nmi = stuck_nmi + 1 if nmi == last_nmi else 0
     stuck_loops = stuck_loops + 1 if loops == last_loops else 0
