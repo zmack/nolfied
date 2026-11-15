@@ -98,6 +98,8 @@ cy1:          .space  1
 ccx:          .space  1
 bflags:       .space  1
 bs_tmp:       .space  2
+bs_w:         .space  1
+bs_h:         .space  1
 tmp2:         .space  2
 noseed:       .space  1
 newly:        .space  2
@@ -106,6 +108,9 @@ apu_reg:      .space  1
 apu_val:      .space  1
 enx:          .space  2
 eslot:        .space  2
+ct_i:         .space  2                 ; field_clear_trail: byte offset
+ct_end:       .space  2
+pr_base:      .space  2                 ; print: attribute << 8, less ' '
 
               .section znear,bss
               .public scr_h, scr_v, fl_r, fl_g, fl_b, apu_dead, oam_buf, oam_hi
@@ -691,8 +696,27 @@ box_scan_k_a2:  lsr     a
 box_scan_k_a3:  lsr     a
               lsr     a
               sta     dp:.tiny (cy1)
+; The scan: at least one row and one column (as in legacy box_scan, whose
+; loops test for the end after the first cell), cx0..cx1 by cy0..cy1. Not
+; the legacy code any more: the inner loop stays 8-bit, counts down, and
+; keeps B = 0 so that tay gives a clean 16-bit index (about 30 cycles a
+; cell instead of 45). tools/test_selftest.py checks it against a model.
               stz     dp:.tiny (bflags)
-box_scan_k_row: rep     #0x20
+              lda     dp:.tiny (cx1)
+              sec
+              sbc     dp:.tiny (cx0)
+              bcs     box_scan_k_w
+              lda     #0
+box_scan_k_w: inc     a
+              sta     dp:.tiny (bs_w)           ; columns per row
+              lda     dp:.tiny (cy1)
+              sec
+              sbc     dp:.tiny (cy0)
+              bcs     box_scan_k_h
+              lda     #0
+box_scan_k_h: inc     a
+              sta     dp:.tiny (bs_h)           ; rows
+              rep     #0x20
               lda     dp:.tiny (cy0)
               and     ##0x00FF
               asl     a
@@ -706,30 +730,35 @@ box_scan_k_row: rep     #0x20
               and     ##0x00FF
               clc
               adc     dp:.tiny (bs_tmp)
-              tax
+              tax                               ; X = first cell
+              lda     dp:.tiny (bs_w)
+              and     ##0x00FF
+              eor     ##0xFFFF
+              sec
+              adc     ##64
+              sta     dp:.tiny (bs_tmp)         ; 64 - columns: on to the next row
               sep     #0x20
-              lda     dp:.tiny (cx0)
-              sta     dp:.tiny (ccx)
-box_scan_k_col: rep     #0x20
-              lda     grid,x
-              and     ##0x0007
+box_scan_k_row: lda   #0
+              xba                               ; B = 0: tay below is clean
+              lda     dp:.tiny (bs_w)
+              sta     dp:.tiny (ccx)            ; columns left in this row
+box_scan_k_col: lda   grid,x
+              and     #0x07
               tay
-              sep     #0x20
               lda     bit_tab,y
               tsb     dp:.tiny (bflags)
               inx
-              lda     dp:.tiny (ccx)
-              cmp     dp:.tiny (cx1)
-              bcs     box_scan_k_rowdone
-              inc     dp:.tiny (ccx)
-              bra     box_scan_k_col
-box_scan_k_rowdone:
-              lda     dp:.tiny (cy0)
-              cmp     dp:.tiny (cy1)
-              bcs     box_scan_k_done
-              inc     dp:.tiny (cy0)
-              bra     box_scan_k_row
-box_scan_k_done:lda     dp:.tiny (bflags)
+              dec     dp:.tiny (ccx)
+              bne     box_scan_k_col
+              rep     #0x20
+              txa
+              clc
+              adc     dp:.tiny (bs_tmp)
+              tax
+              sep     #0x20
+              dec     dp:.tiny (bs_h)
+              bne     box_scan_k_row
+              lda     dp:.tiny (bflags)
               rts
 
 spc_init_k:
@@ -1222,6 +1251,7 @@ enemy_box_k:
               .public upload_bg3, upload_oam, field_init, field_fill
               .public field_redraw_all, field_update_cell, box_scan
               .public spc_init, apu_write, enemy_move, enemy_box_flags
+              .public bg3_clear, print, field_clear_trail
 
 ; legacy kernels keep their names with a _k suffix where C sees a wrapper
 core_boot_ppu: sep    #0x20
@@ -1304,6 +1334,78 @@ enemy_box_flags: asl  a
               jsr     enemy_box_k
               rep     #0x30
               and     ##0x00ff
+              rts
+
+; uint16_t print(uint16_t at, const char *s, uint8_t attr): text into the
+; BG3 shadow from index `at`; returns the index after it. s arrives in _Dp,
+; attr on the stack (3,s). The font starts at ' ' (tile 0). 33 cycles a
+; character; Calypsi's loop took about 110 with the call.
+print:        asl     a
+              tax                               ; X = byte offset
+              lda     3,s
+              xba
+              and     ##0xFF00
+              sec
+              sbc     ##0x0020
+              sta     dp:.tiny (pr_base)
+              ldy     ##0
+print_l:      lda     (dp:.tiny _Dp),y          ; this character (and the next)
+              and     ##0x00FF
+              beq     print_done
+              clc
+              adc     dp:.tiny (pr_base)
+              sta     bg3map,x
+              inx
+              inx
+              iny
+              bra     print_l
+print_done:   sep     #0x20
+              lda     #1
+              sta     dp:.tiny (bg3_dirty)
+              rep     #0x20
+              txa
+              lsr     a
+              rts
+
+; void field_clear_trail(uint16_t n): the first n trail cells := C_OPEN, each
+; re-tiled in the BG1 shadow (legacy wipe_trail's loop)
+field_clear_trail: asl    a
+              sta     dp:.tiny (ct_end)
+              lda     ##0
+field_clear_trail_l: cmp  dp:.tiny (ct_end)
+              bcs     field_clear_trail_done
+              sta     dp:.tiny (ct_i)
+              tax
+              lda     long:trail,x
+              tax
+              sep     #0x20
+              stz     grid,x
+              jsr     update_cell               ; A8 in and out
+              rep     #0x20
+              lda     dp:.tiny (ct_i)
+              inc     a
+              inc     a
+              bra     field_clear_trail_l
+field_clear_trail_done: rep #0x30
+              rts
+
+; void bg3_clear(uint16_t at, uint16_t n): n BG3 shadow cells from `at` := 0
+; (marks BG3 dirty). Calypsi passes a second 16-bit argument in the _Dp
+; pseudo-register. 15 cycles a cell; Calypsi's own loop took 45.
+              .extern _Dp
+bg3_clear:    asl     a
+              tax                               ; X = byte offset
+              ldy     dp:.tiny _Dp              ; Y = cells
+              beq     bg3_clear_done
+bg3_clear_l:  stz     bg3map,x
+              inx
+              inx
+              dey
+              bne     bg3_clear_l
+bg3_clear_done: sep   #0x20
+              lda     #1
+              sta     dp:.tiny (bg3_dirty)
+              rep     #0x20
               rts
 
 spc_init:     sep     #0x20

@@ -24,13 +24,7 @@ static inline uint16_t cell(uint8_t attr, uint8_t tile)
     return ((uint16_t)attr << 8) | tile;
 }
 
-uint16_t print(uint16_t at, const char *s, uint8_t attr)
-{
-    for (; *s; s++)
-        bg3map[at++] = cell(attr, (uint8_t)(*s - 32));
-    bg3_dirty = 1;
-    return at;
-}
+/* print() is in the core (core.h): it runs ~30 characters per HUD redraw */
 
 uint16_t put_digit(uint16_t at, uint8_t d, uint8_t attr)
 {
@@ -38,75 +32,100 @@ uint16_t put_digit(uint16_t at, uint8_t d, uint8_t attr)
     return at + 1;
 }
 
+/* 0..99 as two decimal digits, packed tens:ones (one table read instead of a
+ * divide per number) */
+static const uint8_t dec2[100] = {
+#define ROW(t) 0x##t##0, 0x##t##1, 0x##t##2, 0x##t##3, 0x##t##4, \
+               0x##t##5, 0x##t##6, 0x##t##7, 0x##t##8, 0x##t##9
+    ROW(0), ROW(1), ROW(2), ROW(3), ROW(4), ROW(5), ROW(6), ROW(7), ROW(8), ROW(9)
+#undef ROW
+};
+
+/* two digits at p: tiles 16 + tens, 16 + ones */
+#define PUT_PAIR(p, base, pair) do {                    \
+        small_t d_ = dec2[pair];                        \
+        (p)[0] = (base) + (d_ >> 4);                    \
+        (p)[1] = (base) + (d_ & 0x0F);                  \
+    } while (0)
+
 uint16_t put_dec2(uint16_t at, uint8_t v, uint8_t attr)
 {
-    uint16_t tens = hw_div8(v, 10);
-    uint8_t ones = RDMPY;
-    at = put_digit(at, tens, attr);
-    return put_digit(at, ones, attr);
+    if (v > 99)
+        v = 99;
+    PUT_PAIR(&bg3map[at], ((uint16_t)attr << 8) + 16, v);
+    return at + 2;
 }
 
-/* All ten decimal digits of v, least significant first.
+/* v in base 100, least significant pair first: n pairs (enough for v).
  *
- * Long division by 10, one byte at a time, on the 16/8 hardware divider:
- * each partial dividend is (remainder << 8) | byte < 2560, so every step is a
- * single 16-cycle hardware divide. (C's `v / 10000` would call Calypsi's
- * software 32-bit division, which made draw_hud cost up to 17 frames.) */
+ * Long division by 100, one byte at a time, on the 16/8 hardware divider:
+ * each partial dividend is (remainder << 8) | byte < 25600, so every step is
+ * a single 16-cycle hardware divide, and each round yields two digits.
+ * (C's `v / 100` would call Calypsi's software 32-bit division.) */
 typedef union { uint32_t u; uint8_t b[4]; } bytes32;    /* b[3] is the top byte */
 
-static void digits(uint32_t v, uint8_t *d)
+static void pairs100(uint32_t v, uint8_t *pair, small_t n)
 {
-    bytes32 n = { v };
-    uint_fast8_t top = 3;                  /* highest byte that is not 0 */
-    while (top && n.b[top] == 0)
+    bytes32 x = { v };
+    small_t top = 3;                  /* highest byte that is not 0 */
+    while (top && x.b[top] == 0)
         top--;
-    for (uint_fast8_t i = 0; i < 10; i++) {
+    for (small_t i = 0; i < n; i++) {
         uint16_t rem = 0;
-        for (uint_fast8_t k = top + 1; k--; ) {
-            n.b[k] = (uint8_t)hw_div8((rem << 8) | n.b[k], 10);
+        for (small_t k = top + 1; k--; ) {
+            x.b[k] = (uint8_t)hw_div8((rem << 8) | x.b[k], 100);
             rem = RDMPY;
         }
-        d[i] = (uint8_t)rem;
-        while (top && n.b[top] == 0)
+        pair[i] = (uint8_t)rem;
+        while (top && x.b[top] == 0)
             top--;
     }
 }
 
 uint16_t put_num(uint16_t at, uint32_t v, uint8_t attr)
 {
-    uint8_t d[10];
-    digits(v, d);
-    uint_fast8_t n = 10;
-    while (n > 1 && d[n - 1] == 0)
+    uint8_t pair[5];
+    pairs100(v, pair, 5);
+    small_t n = 5;
+    while (n > 1 && pair[n - 1] == 0)
         n--;
-    while (n)
-        at = put_digit(at, d[--n], attr);
-    return at;
+    uint16_t base = ((uint16_t)attr << 8) + 16;
+    uint16_t *p = &bg3map[at];
+    small_t top = dec2[pair[--n]];    /* the leading pair: no leading zero */
+    if (top >> 4)
+        *p++ = base + (top >> 4);
+    *p++ = base + (top & 0x0F);
+    while (n) {
+        PUT_PAIR(p, base, pair[--n]);
+        p += 2;
+    }
+    return (uint16_t)(p - bg3map);
 }
 
-/* the score is kept in tens: print 7 digits, then the fixed trailing zero */
+/* The score is kept in tens: print 7 digits (the top one of four pairs is
+ * dropped: units < 10^7), then the fixed trailing zero. */
 uint16_t put_score(uint16_t at, uint32_t units, uint8_t attr)
 {
-    uint8_t d[10];
-    digits(units, d);
-    for (uint_fast8_t n = 7; n; )
-        at = put_digit(at, d[--n], attr);
-    return put_digit(at, 0, attr);
+    uint8_t pair[4];
+    pairs100(units, pair, 4);
+    uint16_t base = ((uint16_t)attr << 8) + 16;
+    uint16_t *p = &bg3map[at];
+    *p++ = base + (dec2[pair[3]] & 0x0F);
+    PUT_PAIR(p, base, pair[2]);
+    PUT_PAIR(p + 2, base, pair[1]);
+    PUT_PAIR(p + 4, base, pair[0]);
+    p[6] = base;                      /* the trailing 0 */
+    return at + 8;
 }
 
 void clear_row(uint8_t row)
 {
-    uint16_t at = row * 32;
-    for (uint_fast8_t i = 32; i; i--)
-        bg3map[at++] = 0;
-    bg3_dirty = 1;
+    bg3_clear(MAP(row, 0), 32);
 }
 
 void clear_bg3(void)
 {
-    for (uint16_t i = 0; i < 1024; i++)
-        bg3map[i] = 0;
-    bg3_dirty = 1;
+    bg3_clear(0, 1024);
 }
 
 /* ---- HUD --------------------------------------------------------------- */
@@ -148,7 +167,7 @@ void draw_chain_bar(void)
 
     uint8_t attr = cells >= 2 ? ATTR_O : ATTR_P;  /* pink when nearly out */
     uint16_t at = MAP(2, 28);
-    for (uint_fast8_t i = 0; i < CHAIN_BAR_MAX; i++, at++)
+    for (small_t i = 0; i < CHAIN_BAR_MAX; i++, at++)
         bg3map[at] = i < cells ? cell(attr, TILE_BAR) : 0;
     bg3_dirty = 1;
 }
@@ -157,15 +176,15 @@ void draw_chain_bar(void)
 void draw_owned(uint8_t row)
 {
     clear_row(row);
-    uint16_t at = row * 32;
-    for (uint_fast8_t p = 0; p < PERK_COUNT; p++) {
-        uint_fast8_t n = run_perks.stacks[p];
+    uint16_t *at = &bg3map[MAP(row, 0)];
+    for (small_t p = 0; p < PERK_COUNT; p++) {
+        small_t n = run_perks.stacks[p];
         if (!n)
             continue;
-        bg3map[at++] = cell(ATTR_W, 120 + p);
+        at[0] = cell(ATTR_W, 120 + p);
         if (n >= 2)
-            put_digit(at, n, ATTR_Y);
-        at++;
+            at[1] = cell(ATTR_Y, 16 + (n & 0x0F));
+        at += 2;
     }
 }
 

@@ -5,7 +5,7 @@
  *
  * Each sprite is four stores; the high table is a constant (see HI_PLAY).
  *
- * Locals are uint_fast8_t (16-bit): with 8-bit locals Calypsi 5.18 produced
+ * Locals are small_t (16-bit): with 8-bit locals Calypsi 5.18 produced
  * code reachable in both accumulator widths here (tools/check_modes.py).
  */
 #include "game.h"
@@ -29,7 +29,7 @@ void oam_init(void)
         oam_buf[i + 2] = 0;
         oam_buf[i + 3] = 0;
     }
-    for (uint_fast8_t i = 0; i < 32; i++)
+    for (small_t i = 0; i < 32; i++)
         oam_hi[i] = 0;
 }
 
@@ -63,10 +63,10 @@ void build_oam(uint8_t view_state)
         /* the three card icons; the selected one bobs */
         static const uint8_t icon_x[3] = { 1 * 8 + 20, 11 * 8 + 20, 21 * 8 + 20 };
         at = 0;
-        for (uint_fast8_t i = 0; i < 3; i++, at += 4) {
-            uint_fast8_t p = offers[i];
-            uint_fast8_t tile = ((p >> 2) << 6) | ((p & 3) << 2);
-            uint_fast8_t bob = (i == cursor && (nmi_count & 0x10)) ? 2 : 0;
+        for (small_t i = 0; i < 3; i++, at += 4) {
+            small_t p = offers[i];
+            small_t tile = ((p >> 2) << 6) | ((p & 3) << 2);
+            small_t bob = (i == cursor && (nmi_count & 0x10)) ? 2 : 0;
             SLOT(at, icon_x[i], 47 - bob, tile, ATTR_ICON);
         }
         oam_hi[0] = HI_DRAFT;
@@ -82,13 +82,13 @@ void build_oam(uint8_t view_state)
         return;
     }
 
-    uint_fast8_t frame = nmi_count;
-    uint_fast8_t shake_x = (uint8_t)sh_x;     /* wraps like the hardware does */
-    uint_fast8_t shake_y = (uint8_t)sh_y;
+    small_t frame = nmi_count;
+    small_t shake_x = (uint8_t)sh_x;     /* wraps like the hardware does */
+    small_t shake_y = (uint8_t)sh_y;
 
     /* slot 0: player, hidden while dying, blinking while invulnerable */
     if (view_state != ST_DYING && !(invuln && (frame & 0x02))) {
-        uint_fast8_t glow = (shield && (frame & 0x04)) ? ATTR_SHIELD : ATTR_PLAYER;
+        small_t glow = (shield && (frame & 0x04)) ? ATTR_SHIELD : ATTR_PLAYER;
         SMALL(0, ppx, ppy, (frame & 0x08) >> 2, glow);
     } else {
         HIDE(0);
@@ -102,9 +102,9 @@ void build_oam(uint8_t view_state)
         HIDE(4);
 
     /* slots 2..8: shards */
-    uint_fast8_t shard_tile = 4 + ((frame & 0x04) >> 1);
+    small_t shard_tile = 4 + ((frame & 0x04) >> 1);
     at = 8;
-    for (uint_fast8_t s = 1; s < MAX_ENEMIES; s++, at += 4) {
+    for (small_t s = 1; s < MAX_ENEMIES; s++, at += 4) {
         if (e_type[s] == E_SHARD)
             SMALL(at, e_x[s] >> 8, e_y[s] >> 8, shard_tile, ATTR_SHARD);
         else
@@ -112,7 +112,7 @@ void build_oam(uint8_t view_state)
     }
 
     /* slots 9..12: capsules */
-    for (uint_fast8_t i = 0; i < MAX_ITEMS; i++, at += 4) {
+    for (small_t i = 0; i < MAX_ITEMS; i++, at += 4) {
         if (i_on[i])
             SMALL(at, i_x[i], i_y[i], 8, ATTR_ITEM);
         else
@@ -120,7 +120,7 @@ void build_oam(uint8_t view_state)
     }
 
     /* slots 13..16: explosions, flickering between two frames */
-    for (uint_fast8_t b = 0; b < MAX_BOOMS; b++, at += 4) {
+    for (small_t b = 0; b < MAX_BOOMS; b++, at += 4) {
         if (x_t[b])
             SMALL(at, x_x[b], x_y[b], (x_t[b] & 0x04) ? 10 : 12, ATTR_BOOM);
         else

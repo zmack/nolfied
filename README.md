@@ -9,7 +9,9 @@ clear the stage, and don't let anything touch your line while you're cutting.
 
 ## Play it
 
-The ready-to-run ROM is **[`dist/nolfied.sfc`](dist/nolfied.sfc)** (256KB LoROM, NTSC).
+The ready-to-run ROM is **[`dist/nolfied.sfc`](dist/nolfied.sfc)** (256KB HiROM, NTSC).
+The original all-assembly build, which plays the same, is
+[`dist/legacy/nolfied-asm.sfc`](dist/legacy/nolfied-asm.sfc) (256KB LoROM).
 
 - **MAME:** `mame snes -cart dist/nolfied.sfc`. MAME needs its own `snes` BIOS set
   (the file `spc700.rom` in `snes.zip`) in your rompath, same as for any SNES game.
@@ -75,24 +77,35 @@ TITAN + GLASS for a few huge cuts, or PRISM once you have a lot of perks.
 
 ## Building
 
-Needs `cc65` (for `ca65`/`ld65`), Python 3, Pillow and numpy.
+The game logic is C, compiled with [Calypsi](https://github.com/hth313/Calypsi-tool-chains)
+for the 65816 (5.18), on a small assembly core: boot, NMI, DMA uploads, the field
+kernels (flood fill, redraw, box scan), text output and the SPC700 driver. Also
+needs Python 3, Pillow and numpy; `ca65`/`ld65` (cc65) build the legacy ROM.
 
 ```sh
-sudo apt install cc65
 pip install pillow numpy
-make            # -> build/nolfied.sfc
+make            # -> build/nolfied.sfc (C)
+make legacy     # -> build/legacy/nolfied.sfc (the original assembly)
 ```
 
-- `tools/gen_assets.py`: generates all the graphics: the field tiles, font, logo,
-  sprites, and the four stage pictures, which are drawn in code.
-- `tools/gen_icons.py`: the 32x32 perk card icons and the 8x8 HUD versions.
-- `src/main.s`: the whole game in 65816 assembly, with a tiny SPC700 sound driver
-  embedded as bytes.
+- `src/game.h`: the module map and the contract between the C modules;
+  `src/core.h`: what C may call in the assembly core (`src/core.s`).
+- `docs/PORTING.md`: how the C port relates to `legacy/main.s`, the rules for
+  writing fast C with Calypsi, and where performance stands.
+- `tools/gen_assets.py`, `tools/gen_icons.py`: generate all the graphics (field
+  tiles, font, logo, sprites, the four stage pictures, the perk icons) in code.
+- `tools/check_modes.py`: runs on every build and rejects the accumulator-width
+  miscompiles Calypsi 5.18 is known to produce.
 - `tools/retro.py`: a headless libretro host (uses the bsnes-mercury core:
   `apt install libretro-bsnes-mercury-accuracy`).
 - `make test`: `tools/test_flow.py` walks every state transition, checks the
   runtime state-machine checker and the frame pacing. `tools/test_perks.py` checks
-  each perk against an independent scoring model.
+  each perk against an independent scoring model. `tools/test_selftest.py` runs
+  the self-tests built into the profiling ROM (box scan and number printing
+  against C models).
+- `make verify-port`: the assembly core's routines that came from `legacy/main.s`
+  must still match it byte for byte.
+- `make profile`: per-stage CPU time of the C ROM against the legacy ROM.
 - `tools/playtest.py OUT SEED STEPS`: a random-input soak test that checks the
   field and the state machines.
 - `tools/fuzz_input.py SEED FRAMES`: a hostile-input fuzzer. It sends impossible

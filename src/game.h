@@ -115,7 +115,7 @@ void score_claim(uint16_t chips);  /* score a claim, popup, chain, juice, stasis
 
 /* ---- hud.c ---------------------------------------------------------------------- */
 #define MAP(row, col) ((row) * 32 + (col))     /* BG3 map index */
-uint16_t print(uint16_t at, const char *s, uint8_t attr);   /* returns next index */
+/* print(at, s, attr) is in the core (core.h) */
 uint16_t put_digit(uint16_t at, uint8_t d, uint8_t attr);
 uint16_t put_dec2(uint16_t at, uint8_t v, uint8_t attr);     /* 2 digits, 0-padded */
 uint16_t put_num(uint16_t at, uint32_t v, uint8_t attr);     /* no leading zeros */

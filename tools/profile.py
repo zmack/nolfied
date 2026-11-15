@@ -39,6 +39,12 @@ def span(a, b):
     return (tb - ta) % (256 * 262)
 
 
+def live_enemies(m, lab_):
+    if "e_type" in lab_:
+        return sum(1 for i in range(8) if m[lab_["e_type"] + i])
+    return sum(1 for i in range(8) if m[0x0540 + 2 * i])      # legacy E_TYPE
+
+
 def run(rom, read_stamps, lab_):
     e = Emu(rom)
     rnd = random.Random(4)
@@ -47,6 +53,7 @@ def run(rom, read_stamps, lab_):
     play = {k: [] for k in PLAY}
     cut = {k: [] for k in CUT}
     last_cut = None
+    alive = []
     frames = 0
     while frames < 2000:
         d = rnd.choice(["up", "down", "left", "right"])
@@ -59,14 +66,17 @@ def run(rom, read_stamps, lab_):
                     e.run(3, "start"); e.run(60); e.run(2, "b"); e.run(140)
                 continue
             frames += 1
+            alive.append(live_enemies(m, lab_))
             s = read_stamps(m)
             for i, k in enumerate(LOOP):
                 v = span(s[i], s[i + 1])
                 if v < 262:
                     loop[k].append(v)
-            for i, k in enumerate(PLAY):
-                v = span(s[16 + i], s[17 + i])
-                if v < 262:
+            parts = [span(s[16 + i], s[17 + i]) for i in range(len(PLAY))]
+            # a path that skipped a stamp (left play mid-frame) leaves a stale
+            # one: then the parts don't add up to the whole
+            if sum(parts) == span(s[16], s[16 + len(PLAY)]) and sum(parts) < 262:
+                for k, v in zip(PLAY, parts):
                     play[k].append(v)
             c = tuple(s[8:15])
             if c != last_cut and c[0] != (0, 0):
@@ -75,7 +85,7 @@ def run(rom, read_stamps, lab_):
                 if sum(parts) < 60 * 262:          # all seven stamps from one cut
                     for k, v in zip(CUT, parts):
                         cut[k].append(v)
-    return loop, play, cut
+    return loop, play, cut, sum(alive) / len(alive)
 
 
 def c_stamps(m):
@@ -115,6 +125,7 @@ for title, idx, keys in (("main loop", 0, LOOP), ("inside st_play", 1, PLAY)):
         tc += mean(c); ta += mean(a_)
         print(f"  {k:34s} {mean(c):7.1f} / {max(c) if c else 0:4d}  {mean(a_):7.1f} / {max(a_) if a_ else 0:4d}")
     print(f"  {'total':34s} {tc:7.1f}         {ta:7.1f}")
+print(f"  (enemies alive per frame: C {C[3]:.2f}, assembly {A[3]:.2f})")
 print(f"closing a cut in C ({len(C[2][CUT[0]])} cuts), scanlines (262 = one frame):")
 for k in CUT:
     print(row(k, C[2][k]))

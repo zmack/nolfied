@@ -86,7 +86,9 @@ static inline uint16_t scanline(void)
 extern volatile uint8_t nmi_count;
 extern uint16_t prof_line[32];
 extern uint8_t  prof_frame[32];
-extern uint8_t  prof_bench;
+extern uint8_t  prof_bench;        /* 1: micro-benchmarks, 2: self-tests */
+void selftest_box_scan(uint16_t n);
+void selftest_numbers(uint16_t n);
 #define PROF(n) (prof_line[n] = scanline(), prof_frame[n] = nmi_count)
 #else
 #define PROF(n) ((void)0)

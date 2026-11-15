@@ -117,39 +117,45 @@ void enemies_init(void)
 /* move one axis at a time; a claimed or edge cell in the way reverses it */
 /* enemy_move() is in the core (core.h): one step, bouncing off claimed area */
 
-static inline uint_fast8_t abs_diff(uint_fast8_t a, uint_fast8_t b)
+/* |a - b| < reach, for pixel coordinates (0..255): one unsigned compare */
+#define NEAR(a, b, reach) ((uint16_t)((a) - (b) + (reach) - 1) < (uint16_t)(2 * (reach) - 1))
+
+static void retarget_boss(void)
 {
-    return a > b ? a - b : b - a;
+    e_timer[0] = (rand16() & 0x3F) + 50;
+    randomize_vel(0);
 }
 
-static void enemy_collide(uint_fast8_t s)
-{
-    /* touching the trail anywhere under its box kills the player */
-    if (enemy_box_flags(s) & F_TRAIL)
-        player_hit();
-    uint_fast8_t half = e_half[s];
-    uint_fast8_t cx = PX(e_x[s]), cy = PX(e_y[s]);
-    if (pmode == PM_EDGE)
-        return;
-    uint_fast8_t reach = half + 3;
-    if (abs_diff(cx, ppx) < reach && abs_diff(cy, ppy) < reach)
-        player_hit();
-}
-
+/* Move every enemy (unless frozen), then check whether it touches the trail
+ * (anywhere under its box) or the player.
+ *
+ * Both only matter while the player is off the edge: on the edge there is no
+ * trail (fsm_check() asserts pmode == EDGE <=> trail_len == 0) and the player
+ * is safe, so the box scans are skipped. One player_hit() per enemy is enough:
+ * after a hit the player is invulnerable or dying and a second does nothing. */
 void enemies_update(void)
 {
-    uint8_t frozen = freeze != 0;
-    for (uint8_t s = 0; s < MAX_ENEMIES; s++) {
-        if (e_type[s] == E_NONE)
+    uint16_t moving = freeze == 0;
+    uint16_t exposed = pmode != PM_EDGE;
+    uint16_t px = ppx, py = ppy;
+    for (uint16_t s = 0; s < MAX_ENEMIES; s++) {
+        uint16_t type = e_type[s];
+        if (type == E_NONE)
             continue;
-        if (!frozen) {
+        if (moving) {
             enemy_move(s);
-            if (e_type[s] == E_BOSS && --e_timer[s] == 0) {
-                e_timer[s] = (rand16() & 0x3F) + 50;
-                randomize_vel(s);
-            }
+            if (type == E_BOSS && --e_timer[0] == 0)
+                retarget_boss();
         }
-        enemy_collide(s);
+        if (!exposed)
+            continue;
+        uint16_t hit = enemy_box_flags(s) & F_TRAIL;
+        if (!hit && pmode != PM_EDGE) {
+            uint16_t reach = e_half[s] + 3;
+            hit = NEAR(PX(e_x[s]), px, reach) && NEAR(PX(e_y[s]), py, reach);
+        }
+        if (hit)
+            player_hit();
     }
 }
 

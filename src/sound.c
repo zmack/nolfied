@@ -60,10 +60,9 @@ static const note *ch_ptr[CH_COUNT];     /* next step, or 0: channel idle */
 static uint8_t     ch_timer[CH_COUNT];
 static uint8_t     ch_new[CH_COUNT];     /* first step still to come: key on */
 
-static void dsp(uint8_t reg, uint8_t val)
-{
-    apu_write(((uint16_t)reg << 8) | val);
-}
+/* DSP register := value. A macro: it runs up to 20 times a frame, and Calypsi
+ * does not inline. */
+#define dsp(reg, val) apu_write(((uint16_t)(reg) << 8) | (uint8_t)(val))
 
 void sfx(uint8_t channel, const note *n)
 {
@@ -72,20 +71,20 @@ void sfx(uint8_t channel, const note *n)
     ch_new[channel] = 1;
 }
 
-static void voice_volume(uint8_t base, uint8_t vol)
+static void voice_volume(small_t base, small_t vol)
 {
     dsp(base + VOLL, vol);
     dsp(base + VOLR, vol);
 }
 
-static void play_step(uint8_t ch, const note *n)
+static void play_step(small_t ch, const note *n)
 {
-    uint8_t base = ch << 4;
+    small_t base = ch << 4;
     ch_timer[ch] = n->dur;
     if (ch == CH_NOISE) {
         dsp(DSP_FLG, NOISE_EN | (uint8_t)n->pitch);   /* pitch is the noise rate */
     } else {
-        dsp(base + PITCHL, (uint8_t)n->pitch);
+        dsp(base + PITCHL, n->pitch);
         dsp(base + PITCHH, n->pitch >> 8);
     }
     voice_volume(base, n->vol);
@@ -98,14 +97,15 @@ static void play_step(uint8_t ch, const note *n)
 
 void sfx_update(void)
 {
-    for (uint8_t ch = 0; ch < CH_COUNT; ch++) {
+    for (small_t ch = 0; ch < CH_COUNT; ch++) {
         const note *n = ch_ptr[ch];
         if (!n || --ch_timer[ch])
             continue;
-        if (n->dur == 0xFF) {                 /* loop the music track */
+        small_t dur = n->dur;
+        if (dur == 0xFF) {                    /* loop the music track */
             ch_ptr[ch] = music;
             ch_timer[ch] = 1;
-        } else if (n->dur == 0) {             /* end: silence the voice */
+        } else if (dur == 0) {                /* end: silence the voice */
             ch_ptr[ch] = 0;
             voice_volume(ch << 4, 0);
         } else {

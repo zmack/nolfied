@@ -20,8 +20,10 @@ describe that behaviour.
    the legacy code encodes a game rule. No assembly in C files.
 4. **Write it to be fast** (experiments/c-trial/README.md, "What makes
    Calypsi C fast"):
-   - use `uint_fast8_t` / 16-bit types for arithmetic and loop counters, and
-     `uint8_t` for storage arrays;
+   - use `small_t` (core.h: a 16-bit type for 0..255 values) or `uint16_t`
+     for locals, arithmetic and loop counters, and `uint8_t` only for storage
+     arrays. Not `uint_fast8_t`: Calypsi makes it 8 bits wide, and every 8-bit
+     access costs a `sep`/`rep` pair;
    - don't index arrays of odd-sized structs in per-frame loops (the enemies
      are struct-of-arrays on purpose);
    - multiply with `hw_mul8()` / `mul16x8()` / `mul16x16()` from `hw.h`, each
@@ -37,7 +39,7 @@ describe that behaviour.
    sequence: `INIDISP = 0x80; NMITIMEN = 0;` … uploads … then
    `bright = 0x0F; INIDISP = 0x0F; (void)RDNMI; NMITIMEN = 0x81;`.
 7. **Compile check** your file on its own:
-   `cc65816 --code-model=small --data-model=small -O2 --speed -I src -o /tmp/x.o src/FILE.c`.
+   `cc65816 --code-model=small --data-model=small -O2 --speed --no-cross-call --strong-inline -I src -o /tmp/x.o src/FILE.c`.
    Don't change other people's files. If the contract is missing something,
    say so in your report rather than editing `game.h`.
 
@@ -103,3 +105,42 @@ legacy `do_fill` is C, in this order:
 
 The seed is the boss's cell, `enemy_cell(0)`. Then, as in legacy `try_move`:
 `trail_len = 0`, then `set_pmode(PM_EDGE)`.
+
+## Performance: where the C port stands
+
+`make profile` runs the same scripted play on the C ROM (PROFILE build) and on
+the legacy ROM (PERF build), and reports scanlines per stage of the frame (one
+frame = 262 lines; the NTSC budget for the main loop is about 225).
+
+| per frame, scanlines (mean) | C | legacy asm |
+| --- | ---: | ---: |
+| main loop, total | 47 | 49 |
+| run_state (st_play) | 28.5 | 26.9 |
+| enemies_update | 21 | 23 |
+| build_oam | 12 | 18 |
+| sfx_update | 3.7 | 2.3 |
+
+A closing cut stalls the game for 12 frames in both (the flood fill is the
+same assembly). Rare one-off frames (respawn, HUD redraws) cost more in C,
+but none come close to a frame (worst seen: about 160 lines against 95).
+
+What it took, in order of effect:
+
+1. **Compiler flags.** `--no-cross-call` (Calypsi's default turns repeated
+   code into shared subroutines: smaller, slower) and `--strong-inline`.
+2. **16-bit locals.** `uint_fast8_t` is 8 bits wide in Calypsi; `small_t`
+   is not. See rule 4 above.
+3. **Don't do work the result can't use.** On the edge there is no trail and
+   the player is safe, so `enemies_update` skips the box scans altogether.
+4. **Faster kernels where the legacy ones were slow.** `box_scan` (core.s)
+   keeps its inner loop 8-bit and counting down: 30 cycles a cell instead of 45.
+   `tools/test_selftest.py` checks it against a C model that also matches the
+   legacy routine.
+5. **Small asm primitives for tight loops Calypsi compiles badly:** `print`,
+   `bg3_clear` (core.s) and `field_clear_trail`. Calypsi keeps loop variables on
+   the stack; a 32-cell `clear_row` cost 45 cycles a cell in C, 15 in asm.
+6. **Tables and macros over calls:** two digits per hardware divide
+   (`pairs100`, the `dec2` table), the DSP write and sprite slot macros.
+
+`tools/check_modes.py` gates every build: it rejects the accumulator-width
+miscompiles that Calypsi 5.18 produces (experiments/c-trial/README.md).

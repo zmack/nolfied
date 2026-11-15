@@ -1064,6 +1064,9 @@ done:
 .proc draw_hud
         .a8
         .i16
+.ifdef PERF
+        PSTAMP 24
+.endif
         PRINT 1, 1, s_score, ATTR_W
         PRINT 1, 19, s_stage, ATTR_W
         PRINT 2, 1, s_area, ATTR_W
@@ -1111,6 +1114,9 @@ done:
         jsr draw_chain_bar
         lda #$01
         sta bg3_dirty
+.ifdef PERF
+        PSTAMP 28
+.endif
         rts
 .endproc
 

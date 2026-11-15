@@ -17,9 +17,11 @@ PAIRS = {  # legacy proc -> label in core.s
     "upload_bg1": "upload_bg1_k", "upload_bg3": "upload_bg3_k", "upload_oam": "upload_oam_k",
     "load_picture": "load_picture_k", "init_field": "init_field",
     "update_tile_txy": "update_tile_txy", "update_cell": "update_cell",
-    "redraw_all": "redraw_all", "box_scan": "box_scan_k", "spc_init": "spc_init_k",
+    "redraw_all": "redraw_all", "spc_init": "spc_init_k",
     "apu_write": "apu_write_k",
 }
+# box_scan was rewritten for speed: tools/test_selftest.py checks it against
+# a model (src/selftest.c) that also matches the legacy routine
 PAIRS["enemy_move"] = "enemy_move_k"
 PAIRS["enemy_collide"] = "enemy_box_k"     # its first half: the box and box_scan
 PREFIX = {"enemy_collide"}                  # kernel returns where legacy goes on

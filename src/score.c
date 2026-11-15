@@ -18,7 +18,7 @@ static inline uint16_t fold_mult(const claim *c, const loadout *l)
 
     const scorer *s = l->scorers;
     for (unsigned i = l->n_scorers; i; i--, s++) {
-        uint_fast8_t n = s->stacks;
+        small_t n = s->stacks;
         switch (s->id) {
 #define SCORING(id, name, t1, t2, t3, t4, max, rarity, effect) \
         case PERK_##id: effect; break;

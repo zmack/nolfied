@@ -29,6 +29,20 @@ LABEL_ONLY = re.compile(r"^(?:\s*\\)?\s*[0-9a-f]{6}\s+(`[^`]+`|[A-Za-z_][\w$]*):
 SECTION = re.compile(r"^(?:\s*\\)?\s*[0-9a-f]{6}\s+\.section\s+(\w+)")
 
 
+
+def last_store_16(func, states, i, slot):
+    """True if, in the straight-line code before instruction i, the slot was
+    last written by a 16-bit store: then it holds a 16-bit value (Calypsi
+    reuses stack slots for variables of different sizes) and a 16-bit
+    read-modify-write on it is correct."""
+    for j in range(i - 1, -1, -1):
+        labels, op, arg, src = func[j]
+        if op == "sta" and arg == f"{slot},s":
+            return states[j] == {16}
+        if labels or op in ("jsr", "jsl", "rts", "rtl", "bra", "brl", "jmp"):
+            return False
+    return False
+
 def parse(path):
     """-> list of functions, each a list of (label_or_None, op, arg, srcline)"""
     funcs, cur, pending, in_code = [], None, [], False
@@ -149,9 +163,11 @@ def analyse(func):
         if target in sizes and sizes[target] == 1 and "," not in arg:
             problems.append(f"16-bit {op} on 1-byte '{target}': {src}")
         m = re.match(r"^(\d+),s$", arg)
-        if m and int(m.group(1)) in byte_slots and op in RMW:
+        if m and int(m.group(1)) in byte_slots and op in RMW \
+                and not last_store_16(func, states, i, int(m.group(1))):
             problems.append(f"16-bit {op} on byte stack slot {m.group(1)},s: {src}")
-        if arg in ("0,x",) and xoff is not None and xoff in byte_slots and op in RMW:
+        if arg in ("0,x",) and xoff is not None and xoff in byte_slots and op in RMW \
+                and not last_store_16(func, states, i, xoff):
             problems.append(f"16-bit {op} on byte stack slot {xoff},s (via X): {src}")
     return problems
 

@@ -71,7 +71,9 @@ Two variants of step 4 were tried and rejected:
 5. **Avoid 32-bit shifts.** `x << 8` on a `uint32_t` is an 8-step loop; on a
    `uint16_t` it is `xba; and`.
 6. **Measure.** Optimizer flags and `uint_fast8_t` made no measurable
-   difference here. The data layout and the dispatch method made all of it.
+   difference here (`uint_fast8_t` is 8 bits wide in Calypsi's stdint.h, so it
+   changed nothing; the full port uses a 16-bit `small_t` instead, and
+   `--no-cross-call` did matter there: docs/PORTING.md). The data layout and the dispatch method made all of it.
 
 ## Legibility
 

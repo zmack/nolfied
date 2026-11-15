@@ -9,7 +9,7 @@ ASSETS  := build/bgtiles.bin build/icons.bin
 CC      := cc65816
 AS      := as65816
 LD      := ln65816
-CFLAGS  := --code-model=small --data-model=small -O2 --speed -I src
+CFLAGS  := --code-model=small --data-model=small -O2 --speed --no-cross-call --strong-inline -I src
 CSRC    := $(wildcard src/*.c)
 OBJS    := $(CSRC:src/%.c=build/%.o) build/core.o build/header.o
 HEADERS := $(wildcard src/*.h)
@@ -24,7 +24,7 @@ build/icons.bin: tools/gen_icons.py
 
 # no --target=SNES: Calypsi 5.18 miscompiles hardware multiplies with it
 # (experiments/c-trial/README.md); hw.h drives the multiplier by hand instead.
-build/%.o: src/%.c $(HEADERS) | $(ASSETS)
+build/%.o: src/%.c $(HEADERS) Makefile | $(ASSETS)
 	$(CC) $(CFLAGS) -l -o $@ $< && mv $*.lst build/   # cc65816 lists into the cwd
 
 build/core.o: src/core.s $(ASSETS)
@@ -67,7 +67,7 @@ experiments/c-trial/bench.sfc experiments/c-trial/vectors.bin:
 
 # profiling build: PROF() stamps compiled in (tools/profile.py)
 PROF_OBJS := $(CSRC:src/%.c=build/prof/%.o) build/core.o build/header.o
-build/prof/%.o: src/%.c $(HEADERS) | $(ASSETS)
+build/prof/%.o: src/%.c $(HEADERS) Makefile | $(ASSETS)
 	mkdir -p build/prof
 	$(CC) $(CFLAGS) -D PROFILE -o $@ $<
 build/prof/nolfied.sfc: $(PROF_OBJS) src/nolfied.scm
@@ -77,6 +77,8 @@ build/prof/nolfied.sfc: $(PROF_OBJS) src/nolfied.scm
 	python3 tools/calypsi_lbl.py build/prof/nolfied.lst build/prof/nolfied.lbl
 profile: build/prof/nolfied.sfc
 	python3 tools/profile.py
+selftest: build/prof/nolfied.sfc
+	python3 tools/test_selftest.py
 
 # per-frame CPU use: the C game vs the legacy assembly (tools/perf_compare.py)
 build/legacy/nolfied_perf.sfc: legacy/main.s $(ASSETS)
@@ -92,9 +94,10 @@ perf: $(ROM) build/legacy/nolfied_perf.sfc
 verify-port: $(LEGACY) build/core.o
 	python3 tools/verify_port.py
 
-test: $(ROM)
+test: $(ROM) build/prof/nolfied.sfc
 	python3 tools/test_flow.py
 	python3 tools/test_perks.py
+	python3 tools/test_selftest.py
 
 tla:
 	spec/check.sh

@@ -3,6 +3,7 @@
 #define PERKS_H
 
 #include <stdint.h>
+#include "core.h"                  /* small_t */
 
 typedef enum {
 #define SCORING(id, name, t1, t2, t3, t4, max, rarity, effect) PERK_##id,
@@ -16,19 +17,19 @@ typedef enum {
 typedef enum { RARITY_COMMON, RARITY_SPECIAL, RARITY_RARE } rarity;
 
 /* Everything a perk may look at when a cut closes. Values are 8-bit
- * quantities held in uint_fast8_t (16 bits on the 65816: no mode switches). */
+ * quantities held in small_t (16-bit: no mode switches). */
 typedef struct {
     uint16_t      chips;        /* cells claimed by this cut */
-    uint_fast8_t  chain;        /* chain links before this claim */
-    uint_fast8_t  kills;        /* shards destroyed so far this stage */
-    uint_fast8_t  perks_owned;  /* total stacks of all perks */
+    small_t  chain;        /* chain links before this claim */
+    small_t  kills;        /* shards destroyed so far this stage */
+    small_t  perks_owned;  /* total stacks of all perks */
     uint16_t      stage_mult;   /* +mult banked this stage (JACKPOT capsules) */
 } claim;
 
 /* The multiplier being built: (plus) x (times). */
 typedef struct {
     uint16_t     plus;
-    uint_fast8_t times;
+    small_t times;
 } mult;
 
 /* Card data, for the draft screen. */
@@ -46,8 +47,8 @@ extern const uint8_t   rarity_weight[3];         /* draft odds: 4 / 2 / 1 */
  * a claim never looks at the rest of the deck.
  * Layout note: tools/ read `stacks` at offset 0 and `total` at offset 16. */
 typedef struct {
-    uint_fast8_t id;
-    uint_fast8_t stacks;
+    small_t id;
+    small_t stacks;
 } scorer;
 
 typedef struct {

@@ -67,8 +67,8 @@ void enter_title(void)
     display_off();
     load_picture(0);
     clear_bg3();
-    for (uint_fast8_t r = 0; r < LOGO_H; r++)
-        for (uint_fast8_t c = 0; c < LOGO_W; c++)
+    for (small_t r = 0; r < LOGO_H; r++)
+        for (small_t c = 0; c < LOGO_W; c++)
             bg3map[MAP(4 + r, 7) + c] = title_map[r * LOGO_W + c];
     print(MAP(9, 7), s_sub, ATTR_W);
     print(MAP(21, 5), s_help1, ATTR_W);
@@ -106,8 +106,8 @@ void st_title(void)
 
 static void draw_cards(void)
 {
-    for (uint_fast8_t i = 0; i < 3; i++) {
-        uint_fast8_t col0 = 1 + 10 * i;
+    for (small_t i = 0; i < 3; i++) {
+        small_t col0 = 1 + 10 * i;
         uint16_t frame = rar_pal[perk_cards[offers[i]].rarity];
         uint16_t inside = CARD_INSIDE;
         if (i == cursor)
@@ -115,10 +115,10 @@ static void draw_cards(void)
         frame = (frame << 8) | TILE_CARD_FRAME;
         inside <<= 8;                               /* tile 0 */
 
-        for (uint_fast8_t r = CARD_ROW0; r <= CARD_ROW1; r++) {
+        for (small_t r = CARD_ROW0; r <= CARD_ROW1; r++) {
             uint16_t at = MAP(r, col0);
-            for (uint_fast8_t c = 0; c < CARD_W; c++) {
-                uint_fast8_t edge = r == CARD_ROW0 || r == CARD_ROW1 || c == 0 || c == CARD_W - 1;
+            for (small_t c = 0; c < CARD_W; c++) {
+                small_t edge = r == CARD_ROW0 || r == CARD_ROW1 || c == 0 || c == CARD_W - 1;
                 bg1map[at + c] = edge ? frame : inside;
             }
         }
@@ -127,17 +127,17 @@ static void draw_cards(void)
 }
 
 /* name, description, owned count and rarity of card i */
-static void card_text(uint8_t i)
+static void card_text(small_t i)
 {
-    uint8_t p = offers[i];
+    small_t p = offers[i];
     const perk_card *pc = &perk_cards[p];
-    uint_fast8_t col = 2 + 10 * i;
+    small_t col = 2 + 10 * i;
 
     print(MAP(11, col), pc->name, ATTR_Y);
-    for (uint_fast8_t l = 0; l < 4; l++)
+    for (small_t l = 0; l < 4; l++)
         print(MAP(13 + l, col), pc->text[l], ATTR_W);
 
-    uint8_t owned = run_perks.stacks[p];
+    small_t owned = run_perks.stacks[p];
     if (owned) {
         uint16_t at = print(MAP(18, col), s_own, ATTR_G);
         put_digit(at, owned, ATTR_G);
@@ -147,7 +147,7 @@ static void card_text(uint8_t i)
 
 static void all_card_text(void)
 {
-    for (uint_fast8_t i = 0; i < 3; i++)
+    for (small_t i = 0; i < 3; i++)
         card_text(i);
     clear_row(27);
     if (rerolls)
@@ -208,7 +208,7 @@ void st_draft(void)
         rerolls--;
         gen_offers();
         draw_cards();
-        for (uint_fast8_t r = 11; r < 21; r++)
+        for (small_t r = 11; r < 21; r++)
             clear_row(r);
         all_card_text();
         sfx(CH_TONE, sfx_item);
@@ -265,12 +265,22 @@ void st_play(void)
     booms_update();
     PROF(20);
 #ifdef PROFILE
-    if (prof_bench) {               /* tools/profile.py: time draw_hud alone */
+    if (prof_bench == 1) {          /* micro-benchmarks, set by hand from a tool */
         PROF(21);
         (void)enemy_box_flags(0);   /* the boss box */
         PROF(22);
         enemies_update();
         PROF(23);
+        (void)enemy_box_flags(1);   /* a shard box */
+        PROF(29);
+    }
+    if (prof_bench == 2) {          /* tools/test_selftest.py: one batch */
+        selftest_box_scan(200);
+        prof_bench = 0;
+    }
+    if (prof_bench == 3) {          /* tools/test_selftest.py */
+        selftest_numbers(50);
+        prof_bench = 0;
     }
 #endif
 }
@@ -306,9 +316,12 @@ void st_dying(void)
     booms_update();
     if (--timer)
         return;
+    PROF(7);
     wipe_trail();
+    PROF(15);
     lives--;
     draw_hud();
+    PROF(30);
     if (lives == 0) {
         goto_state(ST_OVER);
         return;

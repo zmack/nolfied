@@ -4,6 +4,11 @@
 
 #include <stdint.h>
 
+/* A small (0..255) value kept in a 16-bit variable. The 65816 runs C in
+ * 16-bit mode, so 8-bit variables cost a width switch on every access.
+ * (Calypsi's uint_fast8_t is 8 bits wide, so it does not help.) */
+typedef uint16_t small_t;
+
 /* ---- frame handshake with the NMI (spec/FrameSync.tla) -------------------
  * The main loop sets frame_ready = 1 when the shadow buffers below are
  * complete, then waits until the NMI has uploaded them and cleared it. */
@@ -38,6 +43,7 @@ uint16_t field_fill(uint16_t seed_cell);       /* claim all not reachable from t
                                                /* recomputed; returns cells claimed */
 void     field_redraw_all(void);               /* rebuild the BG1 shadow from grid  */
 void     field_update_cell(uint16_t cell);     /* re-tile one cell into the shadow  */
+void     field_clear_trail(uint16_t n);        /* trail[0..n-1] := C_OPEN, re-tiled */
 
 /* collision: OR of (1 << state) over the cells under a box (field pixels) */
 extern uint8_t bx0, bx1, by0, by1;
@@ -52,6 +58,12 @@ uint16_t box_scan(void);
  * the box half of enemy_collide, byte-for-byte: tools/verify_port.py). */
 void     enemy_move(uint16_t slot);
 uint16_t enemy_box_flags(uint16_t slot);
+
+/* BG3 (text) shadow: both mark it dirty. print() writes s from index `at`
+ * in palette/priority attr (the font starts at ' ') and returns the index
+ * after it; hud.c builds everything else on it. */
+uint16_t print(uint16_t at, const char *s, uint8_t attr);
+void     bg3_clear(uint16_t at, uint16_t n);   /* n cells from `at` := 0 */
 
 /* ---- PPU uploads (forced blank only, NMI off) ------------------------------ */
 void core_boot_ppu(void);          /* reset all PPU registers                  */

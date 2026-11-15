@@ -27,11 +27,7 @@ void calc_ppos(void)
 /* clear the current trail and put the player back where the cut started */
 void wipe_trail(void)
 {
-    for (uint16_t i = 0; i < trail_len; i++) {
-        uint16_t cell = trail[i];
-        grid[cell] = C_OPEN;
-        field_update_cell(cell);
-    }
+    field_clear_trail(trail_len);
     trail_len = 0;
     if (pmode != PM_EDGE)
         p_idx = start_idx;
@@ -102,7 +98,7 @@ static void add_trail(uint16_t cell)
 }
 
 /* Step one cell in a direction. Returns 1 if the player moved. */
-static uint_fast8_t try_move(uint16_t delta, uint_fast8_t cut)
+static small_t try_move(uint16_t delta, small_t cut)
 {
     uint16_t cell = p_idx + delta;
     uint8_t g = grid[cell];
@@ -154,7 +150,7 @@ static void retract_step(void)
 
 void player_update(void)
 {
-    uint_fast8_t cut = (joy & BTN_CUT) != 0;
+    small_t cut = (joy & BTN_CUT) != 0;
 
     if (pmode == PM_RETRACT) {
         if (!cut) {
