@@ -95,6 +95,10 @@ make            # -> build/nolfied.sfc
   each perk against an independent scoring model.
 - `tools/playtest.py OUT SEED STEPS`: a random-input soak test that checks the
   field and the state machines.
+- `tools/fuzz_input.py SEED FRAMES`: a hostile-input fuzzer. It sends impossible
+  D-pad combinations, all buttons at once, inputs that flip every frame,
+  Start/Select mashing and button storms around state changes. It checks the
+  state machines, the sound CPU, value ranges, hangs, stack depth and the field.
 - `make tla`: model-checks the TLA+ specs in [`spec/`](spec/README.md). They cover
   the NMI/main-loop and SNES/SPC700 handshakes and the game state machine.
 
