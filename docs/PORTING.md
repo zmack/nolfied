@@ -144,3 +144,16 @@ What it took, in order of effect:
 
 `tools/check_modes.py` gates every build: it rejects the accumulator-width
 miscompiles that Calypsi 5.18 produces (experiments/c-trial/README.md).
+
+### A third Calypsi 5.18 miscompile
+
+`a[i][j].ptr[k]`, where `ptr` is a *pointer member* of a struct inside an
+array, is compiled as if `k` indexed the struct itself: Calypsi computes
+`&a[i][j]`, adds `k`, and dereferences the result as the pointer. Element 0
+happens to work. The music sequencer hit this (each bar of a track pointed
+at its pattern), and the lead played the first note of a later bar every 4
+steps. `src/music.c` now stores a pattern *number* and indexes a 2D array
+instead. Arrays *inside* structs (`l->stacks[p]`, `pc->text[l]`) are fine.
+`tools/check_modes.py` does not catch this one. The music is checked
+note by note against the score by rendering each track on its own (set
+`music_mute`).

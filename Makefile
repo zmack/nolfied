@@ -5,11 +5,11 @@
 #   make bench    C vs legacy scoring benchmark
 
 ROM     := build/nolfied.sfc
-ASSETS  := build/bgtiles.bin build/icons.bin
+ASSETS  := build/bgtiles.bin build/icons.bin build/spc_samples.bin
 CC      := cc65816
 AS      := as65816
 LD      := ln65816
-CFLAGS  := --code-model=small --data-model=small -O2 --speed --no-cross-call --strong-inline -I src
+CFLAGS  := --code-model=small --data-model=small -O2 --speed --no-cross-call --strong-inline -I src -I build
 CSRC    := $(wildcard src/*.c)
 OBJS    := $(CSRC:src/%.c=build/%.o) build/core.o build/header.o
 HEADERS := $(wildcard src/*.h)
@@ -21,6 +21,9 @@ build/bgtiles.bin: tools/gen_assets.py
 
 build/icons.bin: tools/gen_icons.py
 	python3 tools/gen_icons.py build
+
+build/spc_samples.bin: tools/gen_samples.py
+	python3 tools/gen_samples.py build
 
 # no --target=SNES: Calypsi 5.18 miscompiles hardware multiplies with it
 # (experiments/c-trial/README.md); hw.h drives the multiplier by hand instead.

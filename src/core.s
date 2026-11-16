@@ -1515,12 +1515,10 @@ spc_blob:
               .byte 0xC4, 0xF4   ; mov $f4,a
               .byte 0x2F, 0xEA   ; bra loop
               .space 0x0300 - 0x0200 - 33, 0
-              .word 0x0400, 0x0400, 0x0410, 0x0410
-              .space 0x0400 - 0x0308, 0
-              .byte 0xB3, 0x77, 0x77, 0x77, 0x77, 0x99, 0x99, 0x99, 0x99
-              .space 7, 0
-              .byte 0xB0, 0x01, 0x23, 0x45, 0x67, 0x76, 0x54, 0x32, 0x10
-              .byte 0xB3, 0xFE, 0xDC, 0xBA, 0x98, 0x89, 0xAB, 0xCD, 0xEF
+               ; $0300: sample directory; $0400: BRR samples (tools/gen_samples.py:
+               ; the two sound-effect waveforms first, then the music's instruments)
+              .incbin "spc_dir.bin"
+              .incbin "spc_samples.bin"
 spc_blob_end:
 pic_chr_lo:   .word   .word0 pic0_chr, .word0 pic1_chr, .word0 pic2_chr, .word0 pic3_chr
 pic_bank:     .word   .word2 pic0_chr, .word2 pic1_chr, .word2 pic2_chr, .word2 pic3_chr

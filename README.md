@@ -94,6 +94,9 @@ make legacy     # -> build/legacy/nolfied.sfc (the original assembly)
   writing fast C with Calypsi, and where performance stands.
 - `tools/gen_assets.py`, `tools/gen_icons.py`: generate all the graphics (field
   tiles, font, logo, sprites, the four stage pictures, the perk icons) in code.
+  `tools/gen_samples.py` does the same for the sound samples.
+- `tools/record_demo.py OUT.mp4 [SECONDS] [SEED]`: records a gameplay video, with
+  a bot playing.
 - `tools/check_modes.py`: runs on every build and rejects the accumulator-width
   miscompiles Calypsi 5.18 is known to produce.
 - `tools/retro.py`: a headless libretro host (uses the bsnes-mercury core:
@@ -124,7 +127,11 @@ make legacy     # -> build/legacy/nolfied.sfc (the original assembly)
 - Claiming uses a flood fill from the boss's position. Anything it doesn't reach gets
   claimed, then the edge cells are worked out again.
 - Sound: a 33-byte SPC700 program that writes DSP registers on request, with a
-  READY handshake. The 65816 side sequences the sound effects, the jingles and a
-  looping bass line.
+  READY handshake. The 65816 side sequences everything. The sound effects and
+  jingles use voices 0-2. The in-game music (`src/music.c`) is dark synthpop in A
+  minor at about 129 BPM, on voices 3-7. It has a plucked saw bass in octaves,
+  saw-chord stabs, a drum machine with a metal "clank", and a pulse lead, with the
+  DSP echo as an 8th-note delay. `tools/gen_samples.py` synthesises and BRR-encodes
+  every instrument.
 - Game flow and the player's mode are explicit state machines: a transition table,
   entry actions and a runtime checker. See `spec/README.md`.

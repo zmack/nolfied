@@ -28,6 +28,7 @@ int main(void)
 {
     core_boot_ppu();
     spc_init();
+    music_init();
     load_static();
     oam_init();
     rng = 0xACE1;

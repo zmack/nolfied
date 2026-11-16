@@ -1,10 +1,9 @@
-/* Sound effects, jingles and music: a four-channel note sequencer driving
- * the S-DSP voices (voice = channel). */
+/* Sound effects and jingles: a three-channel note sequencer driving S-DSP
+ * voices 0..2 (voice = channel). The music is music.c, on voices 3..7. */
 #include "game.h"
 
 #define NOTE(d, p, v) { (d), (p), (v) }
 #define END           { 0, 0, 0 }
-#define LOOP          { 0xFF, 0, 0 }
 
 const note sfx_cut[] = {
     NOTE(2, 1606, 0x30), NOTE(3, 2144, 0x24), END };
@@ -36,17 +35,6 @@ const note jingle_draft[] = {
     NOTE(5, 3211, 0x40), NOTE(5, 4288, 0x40), NOTE(10, 6423, 0x40),
     NOTE(10, 6423, 0x18), END };
 
-/* Each musical step is a note (6 frames) and a quieter tail (2 frames). */
-#define STEP(p) NOTE(6, p, 0x28), NOTE(2, p, 0x0C)
-
-static const note music[] = {
-    STEP(451), STEP(675), STEP(901), STEP(675), STEP(1072), STEP(675), STEP(901), STEP(675),
-    STEP(358), STEP(536), STEP(715), STEP(536), STEP(901),  STEP(536), STEP(715), STEP(536),
-    STEP(401), STEP(601), STEP(803), STEP(601), STEP(1011), STEP(601), STEP(803), STEP(601),
-    STEP(337), STEP(506), STEP(675), STEP(506), STEP(851),  STEP(506), STEP(675), STEP(506),
-    LOOP
-};
-
 /* DSP registers */
 #define DSP_KON   0x4C
 #define DSP_FLG   0x6C
@@ -54,7 +42,7 @@ static const note music[] = {
 #define VOLR      1
 #define PITCHL    2
 #define PITCHH    3
-#define NOISE_EN  0x20
+/* FLG: bits 0-4 are the noise clock; bit 5 clear keeps the echo running (music.c) */
 
 static const note *ch_ptr[CH_COUNT];     /* next step, or 0: channel idle */
 static uint8_t     ch_timer[CH_COUNT];
@@ -82,7 +70,7 @@ static void play_step(small_t ch, const note *n)
     small_t base = ch << 4;
     ch_timer[ch] = n->dur;
     if (ch == CH_NOISE) {
-        dsp(DSP_FLG, NOISE_EN | (uint8_t)n->pitch);   /* pitch is the noise rate */
+        dsp(DSP_FLG, (uint8_t)n->pitch & 0x1F);       /* pitch is the noise rate */
     } else {
         dsp(base + PITCHL, n->pitch);
         dsp(base + PITCHH, n->pitch >> 8);
@@ -102,25 +90,12 @@ void sfx_update(void)
         if (!n || --ch_timer[ch])
             continue;
         small_t dur = n->dur;
-        if (dur == 0xFF) {                    /* loop the music track */
-            ch_ptr[ch] = music;
-            ch_timer[ch] = 1;
-        } else if (dur == 0) {                /* end: silence the voice */
+        if (dur == 0) {                       /* end: silence the voice */
             ch_ptr[ch] = 0;
             voice_volume(ch << 4, 0);
         } else {
             play_step(ch, n);
         }
     }
-}
-
-void music_start(void)
-{
-    sfx(CH_MUSIC, music);
-}
-
-void music_stop(void)
-{
-    ch_ptr[CH_MUSIC] = 0;
-    voice_volume(CH_MUSIC << 4, 0);
+    music_update();
 }

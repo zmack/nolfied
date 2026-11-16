@@ -11,7 +11,8 @@
  *   hud.c      text, numbers, HUD, messages (BG3)
  *   screens.c  title, draft, ready, clear, game over and pause screens
  *   sprites.c  sprite table (OAM) for each state
- *   sound.c    sound effects, jingles, music
+ *   sound.c    sound effects and jingles
+ *   music.c    the in-game music: a five-track sequencer
  *   juice.c    screen shake and flashes
  *   rng.c      random numbers
  *   core.s     assembly core: see core.h
@@ -143,14 +144,18 @@ void oam_init(void);
 void build_oam(uint8_t view_state);
 
 /* ---- sound.c --------------------------------------------------------------------- */
-typedef struct { uint8_t dur; uint16_t pitch; uint8_t vol; } note;   /* dur 0: end, 0xFF: loop */
-enum { CH_TONE, CH_NOISE, CH_JINGLE, CH_MUSIC, CH_COUNT };
+typedef struct { uint8_t dur; uint16_t pitch; uint8_t vol; } note;   /* dur 0: end */
+enum { CH_TONE, CH_NOISE, CH_JINGLE, CH_COUNT };
 extern const note sfx_cut[], sfx_claim[], sfx_item[], sfx_death[], sfx_kill[], sfx_tick[];
 extern const note jingle_start[], jingle_clear[], jingle_over[], jingle_draft[];
 void sfx(uint8_t channel, const note *n);
-void sfx_update(void);             /* once per frame */
-void music_start(void);
+void sfx_update(void);             /* once per frame (also steps the music) */
+
+/* ---- music.c ------------------------------------------------------------------- */
+void music_init(void);             /* once, after spc_init: the echo */
+void music_start(void);            /* the in-game track, from the top */
 void music_stop(void);
+void music_update(void);           /* once per frame (sfx_update calls it) */
 
 /* ---- juice.c ------------------------------------------------------------------- */
 extern uint8_t shake_t;            /* frames of screen shake left */

@@ -25,6 +25,8 @@ PAIRS = {  # legacy proc -> label in core.s
 PAIRS["enemy_move"] = "enemy_move_k"
 PAIRS["enemy_collide"] = "enemy_box_k"     # its first half: the box and box_scan
 PREFIX = {"enemy_collide"}                  # kernel returns where legacy goes on
+# operands that differ on purpose: (proc, byte offset, length, why)
+EXPECTED = {("spc_init", 63, 2): "upload size: the C ROM's sound image carries the music samples"}
 
 
 def legacy_bytes(rom_path, lbl_path):
@@ -106,7 +108,9 @@ for lp, np_ in PAIRS.items():
     if lp in PREFIX:
         rts = b.index("60") if "60" in b else len(b)
         a, b = a[:rts], b[:rts]
-    diff = next((i for i in range(len(a)) if i >= len(b) or not (a[i] == b[i] or "??" in (a[i], b[i]))), None)
+    skip = {o + j for (p_, o, n) in EXPECTED if p_ == lp for j in range(n)}
+    diff = next((i for i in range(len(a)) if i not in skip and
+                 (i >= len(b) or not (a[i] == b[i] or "??" in (a[i], b[i])))), None)
     bad += diff is not None
     where = "" if diff is None else f"  first difference at byte {diff}: ca65 {a[max(0,diff-3):diff+3]} vs calypsi {b[max(0,diff-3):diff+3]}"
     print(f"{'ok  ' if diff is None else 'DIFF'} {lp:16s} {len(a):5d} bytes{where}")
