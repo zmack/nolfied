@@ -1,21 +1,22 @@
-# Publish a GitHub release when a version tag (v*) is pushed, or by hand
-# (Actions > release > Run workflow, with the version): then the release
-# action creates the tag on the commit the workflow runs from.
+# Publish GitHub releases from .github/release-notes/.
+#
+# Each vX.Y.Z.md there is one release. On a push to main that touches the
+# notes (or this workflow), every version that has notes but no release yet
+# is published: the tag is created on the pushed commit, with the ROMs from
+# dist/ attached. To release, add the next notes file and push to main.
 #
 # The ROMs are the ones committed in dist/: building needs the Calypsi
-# toolchain, which CI doesn't have, so the release ships exactly what was
-# built and tested locally (README.md, "Building"). The notes come from
-# .github/release-notes/<tag>.md.
+# toolchain, which CI doesn't have, so a release ships exactly what was
+# built and tested locally (README.md, "Building").
 name: release
 
 on:
   push:
-    tags: ["v*"]
+    branches: [main]
+    paths:
+      - ".github/release-notes/**"
+      - ".github/workflows/release.yml"
   workflow_dispatch:
-    inputs:
-      version:
-        description: "version tag to create, e.g. v1.0.0"
-        required: true
 
 permissions:
   contents: write
@@ -23,22 +24,26 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
-    env:
-      VERSION: ${{ inputs.version || github.ref_name }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Name the ROMs after the version
+      - name: Publish versions that have notes but no release
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          mkdir out
-          cp dist/nolfied.sfc "out/nolfied-${VERSION}.sfc"
-          cp dist/legacy/nolfied-asm.sfc "out/nolfied-${VERSION}-asm.sfc"
-          cd out && sha256sum *.sfc > SHA256SUMS
-
-      - uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ env.VERSION }}
-          target_commitish: ${{ github.sha }}
-          name: NOLFIED ${{ env.VERSION }}
-          body_path: .github/release-notes/${{ env.VERSION }}.md
-          files: out/*
+          set -euo pipefail
+          for notes in .github/release-notes/v*.md; do
+            v=$(basename "$notes" .md)
+            if gh release view "$v" >/dev/null 2>&1; then
+              echo "$v: already released"
+              continue
+            fi
+            out="out/$v"
+            mkdir -p "$out"
+            cp dist/nolfied.sfc "$out/nolfied-$v.sfc"
+            cp dist/legacy/nolfied-asm.sfc "$out/nolfied-$v-asm.sfc"
+            (cd "$out" && sha256sum *.sfc > SHA256SUMS)
+            gh release create "$v" "$out"/* \
+              --target "$GITHUB_SHA" --title "NOLFIED $v" --notes-file "$notes"
+            echo "$v: released"
+          done
