@@ -1,4 +1,6 @@
-# Publish a GitHub release when a version tag (v*) is pushed.
+# Publish a GitHub release when a version tag (v*) is pushed, or by hand
+# (Actions > release > Run workflow, with the version): then the release
+# action creates the tag on the commit the workflow runs from.
 #
 # The ROMs are the ones committed in dist/: building needs the Calypsi
 # toolchain, which CI doesn't have, so the release ships exactly what was
@@ -9,6 +11,11 @@ name: release
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "version tag to create, e.g. v1.0.0"
+        required: true
 
 permissions:
   contents: write
@@ -16,18 +23,22 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ inputs.version || github.ref_name }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Name the ROMs after the version
         run: |
           mkdir out
-          cp dist/nolfied.sfc "out/nolfied-${GITHUB_REF_NAME}.sfc"
-          cp dist/legacy/nolfied-asm.sfc "out/nolfied-${GITHUB_REF_NAME}-asm.sfc"
+          cp dist/nolfied.sfc "out/nolfied-${VERSION}.sfc"
+          cp dist/legacy/nolfied-asm.sfc "out/nolfied-${VERSION}-asm.sfc"
           cd out && sha256sum *.sfc > SHA256SUMS
 
       - uses: softprops/action-gh-release@v2
         with:
-          name: NOLFIED ${{ github.ref_name }}
-          body_path: .github/release-notes/${{ github.ref_name }}.md
+          tag_name: ${{ env.VERSION }}
+          target_commitish: ${{ github.sha }}
+          name: NOLFIED ${{ env.VERSION }}
+          body_path: .github/release-notes/${{ env.VERSION }}.md
           files: out/*
