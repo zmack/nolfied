@@ -9,7 +9,8 @@ clear the stage, and don't let anything touch your line while you're cutting.
 
 ## Play it
 
-The ready-to-run ROM is **[`dist/nolfied.sfc`](dist/nolfied.sfc)** (256KB HiROM, NTSC).
+The ready-to-run ROM is **[`dist/nolfied.sfc`](dist/nolfied.sfc)** (256KB HiROM, NTSC), also attached to each
+[release](https://github.com/zmack/nolfied/releases) with checksums.
 The original all-assembly build, which plays the same, is
 [`dist/legacy/nolfied-asm.sfc`](dist/legacy/nolfied-asm.sfc) (256KB LoROM).
 
@@ -115,6 +116,8 @@ make legacy     # -> build/legacy/nolfied.sfc (the original assembly)
   D-pad combinations, all buttons at once, inputs that flip every frame,
   Start/Select mashing and button storms around state changes. It checks the
   state machines, the sound CPU, value ranges, hangs, stack depth and the field.
+- Releases: add `.github/release-notes/vX.Y.Z.md` and push to main. The
+  `release` workflow then publishes that version with the ROMs from `dist/`.
 - `make tla`: model-checks the TLA+ specs in [`spec/`](spec/README.md). They cover
   the NMI/main-loop and SNES/SPC700 handshakes and the game state machine.
 
