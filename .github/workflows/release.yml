@@ -1,0 +1,33 @@
+# Publish a GitHub release when a version tag (v*) is pushed.
+#
+# The ROMs are the ones committed in dist/: building needs the Calypsi
+# toolchain, which CI doesn't have, so the release ships exactly what was
+# built and tested locally (README.md, "Building"). The notes come from
+# .github/release-notes/<tag>.md.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Name the ROMs after the version
+        run: |
+          mkdir out
+          cp dist/nolfied.sfc "out/nolfied-${GITHUB_REF_NAME}.sfc"
+          cp dist/legacy/nolfied-asm.sfc "out/nolfied-${GITHUB_REF_NAME}-asm.sfc"
+          cd out && sha256sum *.sfc > SHA256SUMS
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: NOLFIED ${{ github.ref_name }}
+          body_path: .github/release-notes/${{ github.ref_name }}.md
+          files: out/*
